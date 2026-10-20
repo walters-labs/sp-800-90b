@@ -1,10 +1,10 @@
 # SP 800-90B coverage audit
 
-Audit date: 2026-10-19. Scope: the current working tree, including uncommitted files, based on commit `3e1cd16de077bde2f804dc1b5a75cabea7e39b5b`. Reference implementation: local NIST checkout at `87c104d0ed4cbc96103e7b8b38d6f2c7e0a6b289`.
+Updated: 2026-10-20 (original audit: 2026-10-19). Scope: the current working tree, including uncommitted files, based on commit `1639d1e0466b955c7e1d37c5734151e889c422d6`. Reference implementation: local NIST checkout at `87c104d0ed4cbc96103e7b8b38d6f2c7e0a6b289`.
 
-The core numerical engine is broadly implemented. The crate is **not yet a complete implementation of the entire publication or a command-compatible replacement for NIST's package**. The strict numerical validation workflow now applies the submitter bound and coordinates track selection, restart testing, and conditioning. Outstanding computational pieces include the remaining additional-source accounting support. Ranked symbol reduction is available for unsigned inputs up to 128 bits. Release evidence also needs expansion, especially complete validation-workflow comparisons.
+The core numerical engine is broadly implemented. The crate is **not yet a complete implementation of the entire publication or a command-compatible replacement for NIST's package**. The strict numerical validation workflow now applies the submitter bound and coordinates track selection, restart testing, and conditioning. Additional-source accounting is implemented for concatenated conditioning inputs. Ranked symbol reduction is available for unsigned inputs up to 128 bits. Release evidence also needs expansion, especially complete validation-workflow comparisons.
 
-This is a coverage and integration audit, not a proof of algorithm correctness or a certification. “Implemented” below means an API and targeted tests exist; the evidence column defines the strength of that claim. No estimator or decision behavior was changed during this audit.
+This is a coverage and integration audit, not a proof of algorithm correctness or a certification. “Implemented” below means an API and targeted tests exist; the evidence column defines the strength of that claim. The current-status tables incorporate the implementation follow-ups below. Earlier verification counts are historical snapshots; the latest evidence is summarized in “Evidence and its limits.” This documentation reconciliation changes no estimator or decision behavior.
 
 ## Baselines
 
@@ -32,11 +32,11 @@ The potential errata correct the binary goodness-of-fit critical value to 27.877
 | §5.2.1–5.2.4 chi-square | Implemented | `chi_square.rs`; binary/nonbinary independence and goodness of fit; all eleven dataset comparisons available | Small-input errors intentionally differ from reference degenerate passes |
 | §5.2.5 IID LRS | Implemented | `iid.rs`; brute-force checks, MPFR tail, ten dataset reference comparison | Reference underflows on full ring-oscillator input; Rust has a synthetic extreme-repetition regression |
 | §6.1 and §6.2 assessment | Implemented for byte-valued data | `assess_iid`, `assess_non_iid`; initial/conditioned modes, width, raw bit expansion, truncation | Strict numerical coordinator now available through `assess_validation` |
-| §3.1.2 track selection | Partial | IID decisions and both assessment tracks exist | Caller chooses track; no coordinated sequential/restart/conditioned evidence or automatic fallback |
-| §3.1.3 initial entropy | Partial | Literal/bitstring combination exists | No `H_submitter` input or final bound application |
+| §3.1.2 track selection | Implemented numerical workflow | `assess_validation` and `validate` coordinate sequential/restart/conditioned evidence, reuse IID checks, and fall back to non-IID after rejection | Physical rationale for the IID claim remains external; complete workflow reference parity is not established |
+| §3.1.3 initial entropy | Implemented | `assess_validation` and `validate` apply the smaller of sequential entropy and H_submitter before restart testing | Submitter bound must be justified externally |
 | §3.1.4 restart | Implemented with validation gaps | `restart.rs`; strict matrix size, simulated cutoff, both estimator tracks, transpose | Positive-entropy IID/non-IID success and non-IID entropy rejection are covered; complete validation-workflow comparison remains separate |
-| §3.1.5 conditioning bounds | Formula implemented | `conditioning.rs`; directed rounding and eight reference cases | Caller supplies widths, h_in, h'; typed Table 1 dimensions, proportional truncation and numerical orchestration are implemented; additional-source accounting remains open |
-| §3.1.6 additional sources | Caller responsibility | No composition API | No enforcement that credited entropy/input accounting comes from the primary source |
+| §3.1.5 conditioning bounds | Formula implemented | `conditioning.rs`; directed rounding, eight raw-dimension reference cases and nine typed-component cases | Caller supplies widths, h_in, h'; typed Table 1 dimensions, proportional truncation and numerical orchestration are implemented; additional-source accounting is implemented |
+| §3.1.6 additional sources | Implemented numerical accounting | Separate primary/additional/total lengths; only primary entropy and width credited; vetted conditioning enforced | Correct physical source identification and actual concatenation remain external |
 | §4.4 RCT/APT | Implemented | `health.rs`; all ten Table 2 cutoffs, boundaries, chunking, latching, reset | Only byte-valued alphabets; optional opposite-symbol binary APT extension absent |
 | §4.2–4.3 startup and on-demand operations | Partial | Startup sample counter, readiness, explicit reset | Device output gating, failure recovery, on-demand scheduling, and source-specific tests are not implemented |
 | §6.4 symbol-space reduction | Implemented (up to 128 bits) | `SymbolReduction` validates a complete caller-supplied ranking and selects 1–8 bits per sample | Source-model ranking and file byte order remain caller responsibilities; arbitrary-width and alternative reductions are not supported |
@@ -50,14 +50,14 @@ Source links for the corresponding code are collected in [the public module expo
 
 | Reference command | Rust equivalent | Missing command behavior |
 | --- | --- | --- |
-| `ea_non_iid` | `assess_non_iid`, `examples/non_iid.rs` | Installed binary, complete flag surface, JSON, subset selection, provenance and standardized exit statuses |
-| `ea_iid` | `assess_iid`, `examples/iid.rs` | Same CLI/reporting gaps; examples are not automation-compatible replacements |
-| `ea_restart` | `assess_restart`, `examples/restart.rs` | Same CLI/reporting gaps; Rust deliberately refuses validated IID entropy after rejected/unavailable checks |
-| `ea_conditioning` | `conditioning_entropy`, `examples/conditioning.rs` | File-to-h' orchestration, reference epsilon diagnostics and full-entropy eligibility messages, JSON |
-| `ea_transpose` | `restart_column_sequence` | File-writing command and block selection |
-| Reference self-test runner | Optional Rust integration tests and C++ adapters | One reproducible command that builds the pinned reference/adapters and runs the entire compatibility suite |
+| `ea_non_iid` | `assess_non_iid`, installed `sp-800-90b non-iid` | Explicit Rust flags/status contract; full intermediate diagnostic JSON and NIST flag aliases are not implemented |
+| `ea_iid` | `assess_iid`, installed `sp-800-90b iid` | Rust CLI contract differs from NIST flags; full intermediate grouping diagnostics remain API-only |
+| `ea_restart` | `assess_restart`, installed `sp-800-90b restart` | Explicit Rust flags/report contract; refuses validated IID entropy after rejected/unavailable checks |
+| `ea_conditioning` | `conditioning_entropy`, `examples/conditioning.rs`, installed `conditioning` command with JSON | Standalone file-to-h' orchestration (available through `validate`), reference epsilon diagnostics and full-entropy eligibility messages |
+| `ea_transpose` | `restart_column_sequence`, installed `transpose` utility | Fixed 1000×1000 matrices; explicit byte offset/selection flags rather than NIST flag aliases |
+| Reference self-test runner | `scripts/reference_harness.py`, pinned isolated builds and seven Rust reference targets; Linux CI configured | Final uncommitted revision still needs hosted CI; full workflow parity is a separate coverage goal |
 
-There is no `src/main.rs`, `src/bin/`, explicit `[[bin]]`, or serialization dependency. Example programs return successfully after printing some rejected assessments, so their process exit status must not be used as an assessment pass indicator. Reference CLI behavior and a safer CLI contract should be explicitly distinguished in a future design.
+`src/main.rs` provides `non-iid`, `iid`, `restart`, `conditioning`, `validate`, and `transpose` commands with versioned JSON reports and explicit completion/rejection/error exit codes. Transposition writes a new file and refuses overwrite. Example programs may return successfully after printing rejected assessments; their process exit status must not be used as an assessment pass indicator. The installed CLI intentionally uses its own flags and result contract.
 
 The reference package does not supply the RCT/APT streaming device integration that our health module would need to replace. Its absence is a publication/application integration gap, not a missing `ea_health` port.
 
@@ -76,13 +76,18 @@ These require preservation in documentation and regression tests rather than aut
 
 ## Evidence and its limits
 
-Fresh checks during this audit:
+Latest verification on 2026-10-20, after the six CLI commands were implemented:
 
-- `cargo test -q`: **130 passed, 0 failed, 23 ignored**, including the doctest summary.
-- `cargo clippy --all-targets -- -D warnings`: passed.
-- `cargo fmt --check`: passed.
+- `cargo test --all-targets`: **161 passed, 0 failed, 36 opt-in tests ignored**.
+- `cargo test --doc`: **12 passed**.
+- Clippy with warnings denied, formatting, and whitespace checks: passed.
+- The pinned reference harness separately ran **28 reference tests across seven targets; all passed**. Its qualified status was `passed_with_binary64_baseline_differences`: nine clean baseline datasets and the two documented M1 exceptions.
+- The new full-size restart and validation CLI tests were run separately and passed, including IID success, fallback, conditioning, and rejection. The regular-suite ignored count is not a claim that all opt-in tests were skipped throughout the session or that all 36 were rerun together.
 
-The ignored tests are opt-in reference or expensive tests, not unexplained test failures. They were not all rerun during this audit. Earlier session runs demonstrated reference agreement, but the following limits come directly from the checked-in test assertions:
+The [latest reference verification](#reference-verification--2026-10-20) records
+local evidence paths. An earlier Linux CI success was reported by the user;
+the final uncommitted CLI revision still needs a hosted run. The following
+limits come from the test assertions:
 
 | Suite | What it checks | What it does not establish |
 | --- | --- | --- |
@@ -92,35 +97,41 @@ The ignored tests are opt-in reference or expensive tests, not unexplained test 
 | `permutation_reference.rs` | Original statistics on eleven datasets; seeded counters on three 4096-sample prefixes | Full-million-sample seeded suite parity or all seed distributions |
 | `iid_reference.rs` | LRS on ten datasets; entropy/chi-square/LRS-length comparison in both modes on one 4096-sample prefix | Combined test does not compare the native permutation verdict; native seed is uncontrolled |
 | `restart_reference.rs` | Binary and four-bit non-IID restart cases with positive H_I; sanity-pass/entropy-rejection case; exact seeded sanity cutoffs; H_I=0 baseline, seeded successful IID restart and IID incomplete-check propagation | Broader source fixtures |
-| Restart simulator tests | Seeded 10,000-trial quantile parity at five H values; full five-million-trial sanity rejection | Distribution of empirical cutoff variation or positive-H_I successful reference assessment |
-| `conditioning_reference.rs` | Eight vetted/non-vetted final outputs within tolerance | Full parameter domain, all near-full-entropy regimes or a formal rounding proof |
+| Restart simulator tests | Seeded 10,000-trial quantile parity at five H values; full five-million-trial sanity rejection | Distribution of empirical cutoff variation (positive-H_I workflow comparisons are covered separately) |
+| `conditioning_reference.rs` | Eight vetted/non-vetted outputs and nine typed-component dimension cases within tolerance | Full parameter domain, all near-full-entropy regimes or a formal rounding proof |
 | `health.rs` tests | Published cutoff examples and streaming semantics | Device fault injection, operational failure response or arbitrary-parameter interval certification |
 
-Reference tests depend on environment paths and some existing self-test outputs. They do not currently verify the checkout hash, compiler flags, or freshness of every fixture. No CI configuration, benchmark suite, fuzz target, or cross-platform test matrix is present. These are evidence gaps, not evidence that those platforms or inputs fail.
+Individual reference tests can be run against caller-supplied environment paths. The harness provides stronger provenance: it exports the pinned source, rebuilds tools/adapters, generates fresh fixture results, and records hashes, compiler flags, precision and timings. Linux reference CI is configured; local M1 results and a previously reported Linux run do not constitute a comprehensive cross-platform test matrix. Dedicated benchmark and fuzz suites remain open, as does complete validation-workflow reference parity.
 
 ## Prioritized completion work
 
 | Priority | Gap | Concrete completion criterion |
 | --- | --- | --- |
 | Done | **G1 Validation workflow and submitter bound** | `assess_validation` accepts H_submitter, checks dataset eligibility, coordinates one IID/non-IID track, restart and conditioning, and withholds final entropy on incomplete or rejected evidence. Exploratory APIs remain available; integration tests cover bounds, units and decisions. |
-| Implemented; CI run pending | **G2 Reproducible reference harness and CI** | Pinned isolated builds, automatic adapters, compiler/precision metadata, fresh results and full reference CI are configured. Hosted Linux execution and named regressions for both potential errata remain to be verified/completed. |
+| Implemented; final revision CI pending | **G2 Reproducible reference harness and CI** | Pinned builds, adapters, provenance and fresh results are implemented; all 28 local reference tests passed. An earlier hosted Linux run passed per the user. Run CI on the final committed revision. |
 | Implemented | **G3 Restart validation evidence** | Positive-H_I binary/nonbinary non-IID success, sanity-pass/entropy-rejection, and successful IID restart comparisons with deterministic permutation control are implemented. |
 | Done (up to 128 bits) | **G4 Wider symbol support** | `SymbolReduction` preserves sample boundaries and records input/output widths, ranking, and entropy ceiling. Tests cover bit order, width boundaries, invalid rankings and samples, exhaustive 16-bit projection, and downstream NIST reference agreement. |
-| Partial | **G5 Conditioning integration** | Typed Table 1 dimensions, vetted truncation, and strict assessment integration are implemented. Explicit additional-source accounting remains open. |
-| P2 | **G6 CLI and stable reports** | Implement supported subcommands, file subsets, explicit pass/reject/incomplete statuses and exit codes, precision-preserving JSON, dataset hashes, seed/provenance records, and transpose output. Publish which flags match NIST. |
-| P2 | **G7 Numerical and robustness coverage** | Add independent golden vectors, rounding-bound tests for conditioning, tail minimality/boundary checks for health cutoffs, and property/fuzz tests for preprocessing and state machines. Benchmark time and peak memory on representative million-sample inputs. |
+| Implemented | **G5 Conditioning integration** | Typed Table 1 dimensions, vetted truncation, and strict assessment integration are implemented. Explicit additional-source accounting is implemented. |
+| Implemented (schema version 1) | **G6 CLI and reports** | All six commands expose documented flags and applicable status/exit, decimal-string entropy, hash and seed fields. Non-IID/IID/restart/transpose support selection; validate reads full files and conditioning accepts numerical inputs. Full intermediate estimator diagnostics remain API-only; NIST flag aliases are intentionally absent. |
+| P2 | **G7 Numerical and robustness coverage** | Add independent golden vectors, rounding-bound tests for conditioning, tail minimality/boundary checks for health cutoffs, and property/fuzz tests for preprocessing and state machines. Benchmark time and peak memory on representative million-sample inputs; add named regressions for both potential errata. |
 | P2 | **G8 Release preparation** | Establish minimum Rust/platform support, review public API stability, add package metadata and reproducible examples, and inventory redistribution notices. Cargo metadata identifies rug and gmp-mpfr-sys as LGPL-3.0+; the crate's MIT declaration is not a complete dependency notice inventory. |
 | Scope decision | **G9 Operational source integration** | If this becomes a device-facing source library, design GetNoise/GetEntropy/HealthTest interfaces, startup withholding, on-demand operation and recovery. Otherwise document those responsibilities as outside the assessment crate. |
 
-G1 is implemented by `assess_validation` for byte-valued raw samples and unpacked conditioned output bits. It enforces dataset sizes, consistent track selection, H_submitter, complete evidence, restart acceptance, and conditioning block units. G2 now has a pinned build/comparison harness and Linux CI configuration (the user reports a successful hosted run in 15 minutes 9 seconds); G3 now includes successful IID and non-IID restart comparisons. A unified CLI is useful after the report semantics are stable.
+G1 is implemented by `assess_validation` for byte-valued raw samples and unpacked conditioned output bits. It enforces dataset sizes, consistent track selection, H_submitter, complete evidence, restart acceptance, and conditioning block units. G2 now has a pinned build/comparison harness and Linux CI configuration (the user reports a successful hosted run in 15 minutes 9 seconds); G3 now includes successful IID and non-IID restart comparisons. The six-command CLI now exposes these numerical workflows with documented version 1 reports. Release preparation and CI on the final revision remain the next steps.
 
 ## Requirements that remain external
 
 Physical noise models, restart procedures, environmental characterization, collection provenance, evidence for IID assumptions, vetted-component assurance, and source-specific failure analysis remain responsibilities of a source developer and validation process. A software API can collect and enforce the presence of that evidence, but cannot establish it from a byte file. Accordingly, completing the code roadmap would produce a more complete assessment implementation, not a claim of NIST certification.
 
-## Validation workflow follow-up
+## Implementation and verification history
 
-The G1 implementation adds deterministic integration tests for submitter bounds, conditioning units, eligibility failures, restart rejection, incomplete IID evidence and IID fallback. The opt-in full-size IID success regression passed on 2026-10-20 in 46.34 seconds after internal restart evidence reuse and test-profile optimization of libbz2-rs-sys. It verifies three permutation assessments and reuse of both restart checks. This is a deterministic synthetic fixture, not reference parity. These extend the audit snapshot above; they do not establish reference parity for the complete workflow. G5 now includes typed vetted algorithm metadata but remains open for richer source-input accounting; proportional vetted-output truncation is now implemented.
+The sections below record incremental implementation evidence. Test counts and
+statements that a suite was not rerun refer to that stage, not the latest full
+verification summarized above.
+
+### Validation workflow follow-up
+
+The G1 implementation adds deterministic integration tests for submitter bounds, conditioning units, eligibility failures, restart rejection, incomplete IID evidence and IID fallback. The opt-in full-size IID success regression passed on 2026-10-20 in 46.34 seconds after internal restart evidence reuse and test-profile optimization of libbz2-rs-sys. It verifies three permutation assessments and reuse of both restart checks. This is a deterministic synthetic fixture, not reference parity. These tests support the current coverage summary; they do not establish reference parity for the complete workflow. G5 now includes typed vetted algorithm metadata and explicit additional-source input accounting; proportional vetted-output truncation is now implemented.
 
 The workflow now exposes stage timings and live permutation counts/active statistics through `assess_validation_with_progress`. Low-level IID and permutation APIs have corresponding observer variants. Regression tests verify unchanged permutation tail counts/results and preservation of literal MCV entropy in reused restart evidence.
 
@@ -141,7 +152,7 @@ cutoff over five million rounds, including the resulting sanity rejection on a
 structured restart matrix. Successful IID restart parity is covered by the seeded CLI adapter described below. Non-IID coverage
 is expanded further by the cases below.
 
-The complete local M1 harness run on 2026-10-20 passed all 22 reference-suite
+An earlier local M1 harness run on 2026-10-20 passed the then-current 22 reference-suite
 tests. NIST's own baseline comparisons had nine clean passes and two datasets
 with the eight explicitly allowed binary64 differences. The resulting status
 was `passed_with_binary64_baseline_differences`; this is not a clean upstream
@@ -252,8 +263,151 @@ present for historical modeling; XOFs and arbitrary digest lengths are excluded.
 Table tests cover every supported hash and AES key size. Nine new NIST CLI
 comparisons exercise every distinct table width and all six families; these
 compare derived numerical inputs, since the CLI itself accepts raw dimensions.
-Explicit additional-source accounting remains the next conditioning gap.
+Explicit additional-source accounting is implemented in the follow-up below.
 
 Local verification on 2026-10-20 passed 141 regular tests, eleven documentation
 examples, both conditioning reference tests (seventeen numerical cases total),
 Clippy, formatting, and whitespace checks.
+
+
+## Additional-source accounting
+
+`additional_input_bits` defaults to zero in conditioning options. Reports retain
+primary/additional/total lengths and primary input entropy. The formula uses only
+primary-source n_in and h_in. Additional-source inputs require vetted
+conditioning, a nonempty primary input, and a representable total length. The
+validation coordinator rejects invalid combinations before statistical work,
+and derives primary entropy solely from the primary-source restart result.
+Tests cover invariant entropy/probability/precision results as additional lengths
+increase, zero primary entropy, invalid primary bounds, non-vetted rejection,
+length overflow, truncation, and strict-workflow accounting. Physical source
+identification, collection and actual concatenation remain caller responsibilities.
+
+Verification passed all 144 regular tests, twelve documentation examples,
+Clippy, formatting and whitespace checks. The external NIST comparison suite
+was not rerun for this change; additional-input invariance tests exercise the
+existing conditioning calculation without altering its credited inputs.
+
+
+## Non-IID CLI and JSON summaries
+
+The installed `sp-800-90b non-iid` command supports initial/conditioned modes,
+width, precision/confidence options, absolute sample offset, at-most sample
+count, and expanded-bit limits. Version 1 JSON preserves entropy as decimal
+strings and records selected-input SHA-256, options, warnings, estimator
+availability and explicit completeness. Incomplete reports withhold final
+entropy while retaining a labeled available minimum. Exit codes are 0 complete,
+2 error, and 3 incomplete; no non-IID hypothesis rejection status is invented.
+Full intermediate estimator diagnostic serialization remains API-only. All
+six planned CLI commands are now implemented. Tests compare CLI output to the library in both modes, check 384-bit
+round trips, subsets/hashes, constant and incomplete inputs, and error handling.
+
+CLI verification passed 149 regular tests (including five subprocess CLI tests),
+twelve documentation examples, Clippy, formatting, and whitespace checks.
+Both non-IID modes were compared directly with the library at 384-bit precision.
+The external NIST reference suite was not rerun for this interface change.
+
+
+## IID CLI
+
+The IID command shares non-IID file selection and entropy options and adds an
+optional reproducible four-word permutation seed. JSON retains all four check
+outcomes, p-values/statistics, permutation tails and actual seed, candidate
+entropy, eligible entropy, and completeness. Decisions map to exit 0 (not
+rejected), 1 (rejected), 3 (incomplete), and 2 (error). Rejection/incompleteness
+withhold final entropy; constant input explicitly rejects without running checks.
+Tests compare both modes with the library at 384-bit precision, verify subset
+and bit-limit semantics, exercise rejection/incomplete/error branches, and replay
+an OS-seeded run exactly. The other implemented commands are described below.
+
+IID CLI verification passed 152 regular tests, twelve documentation examples,
+Clippy, formatting, and whitespace checks. External NIST comparisons were not
+rerun for this command-interface addition.
+
+
+## Restart CLI
+
+The restart subcommand accepts initial entropy, IID/non-IID mode, selection,
+precision, confidence, and separate sanity/permutation seeds. It enforces the
+million-sample shape and minimum five-million simulation rounds through the API.
+Versioned reports retain actual seeds, maxima, cutoff, row/column assessments,
+and distinct sanity/entropy/IID rejection or incomplete outcomes. Only validated
+results award final entropy. Tests cover malformed options/data, status mapping,
+incomplete IID row serialization, full-size success in both modes, and seeded
+sanity rejection. The full-size subprocess tests are opt-in due to runtime.
+
+Restart CLI verification passed 155 regular tests, twelve documentation examples,
+and both opt-in restart subprocess tests (success in both modes and sanity
+rejection), plus Clippy, formatting, and whitespace checks. External NIST
+comparisons were not rerun for this command-interface addition.
+
+## Conditioning CLI
+
+The `conditioning` command exposes raw block dimensions and primary input
+entropy, explicit vetted/non-vetted mode, assessed output entropy per bit,
+additional-source accounting, retained output length, and precision controls.
+It accepts no file and does not assess output data or establish vetted status.
+Reports retain supplied/effective decimal inputs, probability bounds, caps,
+working precision, and pre/post-truncation entropy. Success exits 0; errors
+exit 2 and withhold entropy. Subprocess tests compare both modes to the library
+at 384-bit precision and cover zero entropy, human output, malformed options,
+invalid entropy, dimension/precision limits, additional-input overflow, and
+unsupported non-vetted combinations.
+
+Verification passed 157 regular tests, twelve doctests, Clippy, formatting,
+and whitespace checks. The 33 opt-in tests and external NIST comparisons were
+not rerun for this CLI addition.
+
+## End-to-end validation CLI
+
+`validate` exposes the strict workflow with separate full sequential/restart
+files, explicit raw width and submitter bound, optional IID claim, and optional
+vetted/non-vetted conditioning. Non-vetted output is assessed from an unpacked
+bit file with at least one million complete blocks. The API controls fallback,
+evidence reuse, entropy bounds, minimum sample sizes, and withholding results.
+Reports include file hashes, actual seeds, attempted IID evidence, intermediate
+estimates, restart rejection reasons, conditioning accounting/caps, and units.
+Incomplete IID execution leaves the selected track null. Optional stage progress
+goes to stderr. No file selection or typed component aliases are exposed.
+
+Subprocess tests cover input/flag errors and full-size unconditioned, vetted,
+non-vetted fallback, successful IID, and restart rejection paths. The vetted
+case checks positive submitter-limited entropy against the library's conditioning
+calculation, including proportional truncation and additional-source accounting.
+Unit tests cover incomplete evidence serialization and decision/exit mapping.
+
+Verification passed 159 regular tests, twelve doctests, all three new opt-in
+full-size validation CLI tests, Clippy, formatting, and whitespace checks.
+External NIST comparisons were not rerun for this interface addition.
+
+## Transpose CLI
+
+The installed `transpose` utility reads a fixed 1000×1000 byte matrix, optionally
+selected by absolute offset and sample count, and writes its column-major
+sequence. Exclusive file creation prevents overwriting existing paths or aliases
+of the input. It validates the selected size before creating output, reports
+write failures, and returns versioned metadata with both hashes. It accepts all
+byte values and makes no entropy claim. Subprocess tests check every matrix
+position, round-trip recovery, subset/hash semantics, malformed input/options,
+and preservation of existing files and symlink targets.
+
+Verification passed 161 regular tests, twelve doctests, Clippy, formatting,
+and whitespace checks. Opt-in and external NIST comparisons were not rerun.
+
+## Reference verification — 2026-10-20
+
+The full pinned harness completed on the M1 using GCC 16, with status
+`passed_with_binary64_baseline_differences`. All 28 Rust reference tests passed
+across seven targets: estimator (10), combined non-IID (3), chi-square (2),
+permutation (2), IID (2), restart (7), and conditioning (2). Nine of the eleven
+fresh NIST baseline comparisons passed directly; `biased-random-bytes` and
+`ringOsc-nist` used only the documented binary64 allowance. There were no
+unexpected failures. Build/test commands took approximately eleven minutes.
+
+Local evidence: `target/reference-runs/20261020T175029Z-8835/report.json` and its
+adjacent command logs. The reference source was pinned to
+`87c104d0ed4cbc96103e7b8b38d6f2c7e0a6b289`. Rust comparisons used the freshly
+built M1 reference; the baseline comparator separately checked fresh NIST results
+against bundled `refdata`. This run does not replace strict extended-precision
+Linux CI, nor add full end-to-end validation parity beyond the harness's existing
+coverage. CLI subprocess coverage remains recorded separately above.

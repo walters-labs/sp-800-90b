@@ -7,6 +7,9 @@ use std::{error::Error, fmt};
 #[derive(Clone, Copy, Debug)]
 pub struct ConditioningOptions {
     pub precision_bits: u32,
+    /// Additional-source bits concatenated per block. Never credited in n_in
+    /// or h_in; permitted only with vetted conditioning (§3.1.6).
+    pub additional_input_bits: u64,
     /// Retained output length after vetted conditioning; None keeps all bits.
     /// Non-vetted conditioning rejects this option, including a no-op request.
     pub retained_output_bits: Option<u32>,
@@ -17,6 +20,7 @@ impl Default for ConditioningOptions {
     fn default() -> Self {
         Self {
             precision_bits: 256,
+            additional_input_bits: 0,
             retained_output_bits: None,
             max_working_precision: 1_048_576,
         }
@@ -33,6 +37,8 @@ pub enum ConditioningKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ConditioningError {
     InvalidDimensions,
+    AdditionalSourcesRequireVetted,
+    InputLengthOverflow,
     InvalidAesKeySize { bits: u32 },
     ComponentDimensionsMismatch,
     InvalidTruncation,
@@ -49,10 +55,37 @@ impl fmt::Display for ConditioningError {
     }
 }
 impl Error for ConditioningError {}
+/// Input composition per conditioning block. Only primary bits enter the
+/// entropy calculation; total bits describe the concatenated physical input.
+///
+/// ```
+/// use rug::Float;
+/// use sp_800_90b::{ConditioningHash, ConditioningOptions, VettedConditioner};
+/// let report = VettedConditioner::Hash(ConditioningHash::Sha256).assess(
+///     512, &Float::with_val(256, 400),
+///     ConditioningOptions { additional_input_bits: 128, ..Default::default() },
+/// )?;
+/// assert_eq!(report.input_accounting.primary_bits, 512);
+/// assert_eq!(report.input_accounting.additional_bits, 128);
+/// assert_eq!(report.input_accounting.total_bits, 640);
+/// assert_eq!(report.primary_input_entropy, 400);
+/// # Ok::<(), sp_800_90b::ConditioningError>(())
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ConditioningInputAccounting {
+    pub primary_bits: u32,
+    pub additional_bits: u64,
+    pub total_bits: u64,
+}
+
 #[derive(Clone, Debug)]
 pub struct ConditioningEstimate {
+    pub input_accounting: ConditioningInputAccounting,
+    /// Supplied entropy of the primary input only, before numerical rounding.
+    pub primary_input_entropy: Float,
     /// Present only when dimensions were derived from a typed component.
     pub vetted_component: Option<crate::VettedConditioner>,
+    /// Primary-source bits used as n_in; excludes additional inputs.
     pub input_bits: u32,
     /// Full conditioning output length, before optional truncation.
     pub output_bits: u32,
@@ -108,6 +141,11 @@ pub fn conditioning_entropy(
         output_bits,
         matches!(kind, ConditioningKind::NonVetted { .. }),
         options.retained_output_bits,
+    )?;
+    let input_accounting = account_conditioning_inputs(
+        input_bits,
+        options.additional_input_bits,
+        matches!(kind, ConditioningKind::NonVetted { .. }),
     )?;
     let precision = input_bits
         .checked_mul(2)
@@ -190,6 +228,8 @@ pub fn conditioning_entropy(
         )?;
     }
     Ok(ConditioningEstimate {
+        input_accounting,
+        primary_input_entropy: input_entropy.clone(),
         vetted_component: None,
         input_bits,
         output_bits,
@@ -254,4 +294,25 @@ pub fn vetted_truncation_entropy(
     // values, never increasing the credited entropy through rounding.
     let product = Float::with_val_round(precision_bits, entropy * retained_bits, Round::Down).0;
     Ok(Float::with_val_round(precision_bits, &product / output_bits, Round::Down).0)
+}
+
+pub(crate) fn account_conditioning_inputs(
+    primary_bits: u32,
+    additional_bits: u64,
+    non_vetted: bool,
+) -> Result<ConditioningInputAccounting, ConditioningError> {
+    if primary_bits == 0 {
+        return Err(ConditioningError::InvalidDimensions);
+    }
+    if non_vetted && additional_bits != 0 {
+        return Err(ConditioningError::AdditionalSourcesRequireVetted);
+    }
+    let total_bits = u64::from(primary_bits)
+        .checked_add(additional_bits)
+        .ok_or(ConditioningError::InputLengthOverflow)?;
+    Ok(ConditioningInputAccounting {
+        primary_bits,
+        additional_bits,
+        total_bits,
+    })
 }

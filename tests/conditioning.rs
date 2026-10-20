@@ -201,3 +201,108 @@ fn conditioning_retains_full_bound_and_scales_only_vetted_output() {
         ));
     }
 }
+
+#[test]
+fn additional_sources_are_recorded_but_never_credited() {
+    let component = VettedConditioner::Hash(ConditioningHash::Sha256);
+    for entropy in [0, 16, 32] {
+        let h = Float::with_val(256, entropy);
+        let base = component.assess(32, &h, Default::default()).unwrap();
+        for extra in [1, 512, 1_000_000] {
+            let report = component
+                .assess(
+                    32,
+                    &h,
+                    ConditioningOptions {
+                        additional_input_bits: extra,
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            assert_eq!(
+                report.input_accounting,
+                ConditioningInputAccounting {
+                    primary_bits: 32,
+                    additional_bits: extra,
+                    total_bits: 32 + extra,
+                }
+            );
+            assert_eq!(report.primary_input_entropy, h);
+            assert_eq!(report.input_bits, 32);
+            assert_eq!(report.effective_internal_width, 32);
+            assert_eq!(report.working_precision, base.working_precision);
+            assert_eq!(report.psi_upper, base.psi_upper);
+            assert_eq!(report.omega_upper, base.omega_upper);
+            assert_eq!(report.min_entropy, base.min_entropy);
+        }
+    }
+    // A larger physical input cannot make an invalid primary entropy legal.
+    assert!(matches!(
+        component.assess(
+            32,
+            &f("33"),
+            ConditioningOptions {
+                additional_input_bits: 512,
+                ..Default::default()
+            }
+        ),
+        Err(ConditioningError::InvalidEntropy)
+    ));
+}
+
+#[test]
+fn additional_source_constraints_and_overflow() {
+    let options = ConditioningOptions {
+        additional_input_bits: 1,
+        ..Default::default()
+    };
+    assert!(matches!(
+        conditioning_entropy(
+            32,
+            16,
+            32,
+            &f("16"),
+            ConditioningKind::NonVetted {
+                assessed_entropy_per_bit: f("0.5")
+            },
+            options
+        ),
+        Err(ConditioningError::AdditionalSourcesRequireVetted)
+    ));
+    assert!(matches!(
+        conditioning_entropy(0, 16, 32, &f("0"), ConditioningKind::Vetted, options),
+        Err(ConditioningError::InvalidDimensions)
+    ));
+    assert!(matches!(
+        conditioning_entropy(
+            32,
+            16,
+            32,
+            &f("16"),
+            ConditioningKind::Vetted,
+            ConditioningOptions {
+                additional_input_bits: u64::MAX,
+                ..Default::default()
+            }
+        ),
+        Err(ConditioningError::InputLengthOverflow)
+    ));
+    let report = conditioning_entropy(
+        32,
+        16,
+        32,
+        &f("16"),
+        ConditioningKind::Vetted,
+        ConditioningOptions {
+            additional_input_bits: u64::MAX - 32,
+            retained_output_bits: Some(8),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(report.input_accounting.total_bits, u64::MAX);
+    assert_eq!(
+        report.min_entropy,
+        vetted_truncation_entropy(16, 8, &report.untruncated_min_entropy, 256).unwrap()
+    );
+}

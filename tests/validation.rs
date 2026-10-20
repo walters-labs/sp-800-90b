@@ -100,6 +100,7 @@ fn submitter_bound_restart_and_conditioning() {
     };
     let mut o = options();
     o.conditioning.retained_output_bits = Some(1);
+    o.conditioning.additional_input_bits = 512;
     let report = assess_validation(&d, &d, &h, Some(c), o).unwrap();
     assert_eq!(report.decision, ValidationDecision::Complete);
     assert_eq!(report.initial_entropy.as_ref().unwrap(), &h);
@@ -122,6 +123,16 @@ fn submitter_bound_restart_and_conditioning() {
         report.conditioning.as_ref().unwrap().vetted_component,
         Some(VettedConditioner::Hash(ConditioningHash::Sha256))
     );
+    let conditioning = report.conditioning.as_ref().unwrap();
+    assert_eq!(
+        conditioning.input_accounting,
+        ConditioningInputAccounting {
+            primary_bits: 8,
+            additional_bits: 512,
+            total_bits: 520,
+        }
+    );
+    assert_eq!(conditioning.primary_input_entropy, 2);
     assert_eq!(report.output_entropy.unwrap(), expected.min_entropy);
 }
 #[test]
@@ -281,6 +292,41 @@ fn invalid_truncation_is_rejected_before_assessment() {
         assess_validation(&data, &data, &h, Some(c), o),
         Err(ValidationError::Conditioning(
             ConditioningError::InvalidTruncation
+        ))
+    ));
+}
+
+#[test]
+fn additional_sources_fail_early_for_invalid_workflows() {
+    let data = vec![0; RESTART_SAMPLES];
+    let h = Float::with_val(256, 0);
+    let mut o = options();
+    o.conditioning.additional_input_bits = 1;
+    assert!(matches!(
+        assess_validation(&data, &data, &h, None, o),
+        Err(ValidationError::InvalidConditioningData)
+    ));
+    let nonvetted = ValidationConditioning::NonVetted {
+        samples_per_block: 8,
+        output_bits: 2,
+        internal_width: 8,
+        output_data: &[],
+    };
+    assert!(matches!(
+        assess_validation(&data, &data, &h, Some(nonvetted), o),
+        Err(ValidationError::Conditioning(
+            ConditioningError::AdditionalSourcesRequireVetted
+        ))
+    ));
+    o.conditioning.additional_input_bits = u64::MAX;
+    let vetted = ValidationConditioning::VettedComponent {
+        samples_per_block: 8,
+        component: VettedConditioner::Hash(ConditioningHash::Sha256),
+    };
+    assert!(matches!(
+        assess_validation(&data, &data, &h, Some(vetted), o),
+        Err(ValidationError::Conditioning(
+            ConditioningError::InputLengthOverflow
         ))
     ));
 }

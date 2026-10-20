@@ -4,6 +4,8 @@ use crate::*;
 use rug::{Float, float::Round};
 use std::{error::Error, fmt, sync::Arc};
 
+/// `samples_per_block` counts primary-source samples only. Additional input
+/// lengths are supplied through `ValidationOptions::conditioning`.
 /// Non-vetted outputs are unpacked bits, concatenated in generation order.
 /// Their length must represent at least one million complete output blocks.
 #[derive(Clone, Copy, Debug)]
@@ -302,6 +304,16 @@ pub fn assess_validation_with_progress(
             || width == 0
             || samples.checked_mul(o.bits_per_symbol as u32).is_none())
     {
+        return Err(ValidationError::InvalidConditioningData);
+    }
+    if let Some((samples, _, _)) = dimensions {
+        crate::conditioning::account_conditioning_inputs(
+            samples * u32::from(o.bits_per_symbol),
+            o.conditioning.additional_input_bits,
+            matches!(conditioning, Some(ValidationConditioning::NonVetted { .. })),
+        )
+        .map_err(ValidationError::Conditioning)?;
+    } else if o.conditioning.additional_input_bits != 0 {
         return Err(ValidationError::InvalidConditioningData);
     }
     if dimensions.is_some()
