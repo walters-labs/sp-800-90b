@@ -95,18 +95,24 @@ These require preservation in documentation and regression tests rather than aut
 
 ## Evidence and its limits
 
-Latest full regular-suite verification on 2026-10-20, after the CLI and API
-usability review and before the two named potential-errata regressions:
+Latest full regular-suite verification on 2026-10-20, with Rust 1.85.0 on Apple
+Silicon macOS after the MSRV compatibility changes:
 
-- `cargo test --all-targets`: **164 passed, 0 failed, 36 opt-in tests ignored**.
-- `cargo test --doc`: **14 passed**.
-- Clippy with warnings denied, formatting, and whitespace checks: passed.
+- `cargo +1.85.0 test --locked --offline --all-targets`: **166 passed, 0 failed, 36 opt-in tests ignored**, including both named potential-errata regressions.
+- `cargo +1.85.0 test --locked --offline --doc`: **14 passed**.
+- Clippy with warnings denied and formatting on Rust 1.97.1, and whitespace checks: passed.
 - Before the API usability additions, the pinned reference harness separately ran **28 reference tests across seven targets; all passed**. Its qualified status was `passed_with_binary64_baseline_differences`: nine clean baseline datasets and the two documented M1 exceptions.
 - The new full-size restart and validation CLI tests were run separately and passed, including IID success, fallback, conditioning, and rejection. The regular-suite ignored count is not a claim that all opt-in tests were skipped throughout the session or that all 36 were rerun together.
 
-After adding the two named potential-errata regressions,
-`cargo test --test most_common_value --test chi_square_goodness_of_fit` passed
-all **15 tests** in those targets. No production code changed.
+The minimum supported Rust version (MSRV) is **1.85.0**. The 2024 edition and
+locked dependencies `rug` 1.30.0, `getrandom` 0.4.3 and `az` 1.3.0 already require
+Rust 1.85, so this is the earliest compatible compiler without changing those
+choices. Six `if let` chains were rewritten as nested conditions and one integer
+`is_multiple_of(2)` call became `% 2 == 0`; the conditions, calculations and
+dependency versions are unchanged. All targets, including the CLI, examples and
+opt-in test binaries, compile on the MSRV; the ignored tests were not executed
+in this check. The reference CI workflow still selects Rust 1.97.1. Enforcing the
+MSRV in regular-suite CI remains a release task.
 
 The [latest reference verification](#reference-verification--2026-10-20) records
 local evidence paths. An earlier Linux CI success was reported by the user;
@@ -138,7 +144,7 @@ Individual reference tests can be run against caller-supplied environment paths.
 | Implemented | **G5 Conditioning integration** | Typed Table 1 dimensions, vetted truncation, and strict assessment integration are implemented. Explicit additional-source accounting is implemented. |
 | Implemented (schema version 1) | **G6 CLI and reports** | All six commands expose documented flags and applicable status/exit, decimal-string entropy, hash and seed fields. Non-IID/IID/restart/transpose support selection; validate reads full files and conditioning accepts numerical inputs. Full intermediate estimator diagnostics remain API-only; NIST flag aliases are intentionally absent. |
 | P2 | **G7 Numerical and robustness coverage** | Named regressions cover both potential errata as described above. Add independent golden vectors, rounding-bound tests for conditioning, tail minimality/boundary checks for health cutoffs, and property/fuzz tests for preprocessing and state machines. Benchmark time and peak memory on representative million-sample inputs. |
-| In progress | **G8 Release preparation** | Rust 1.97.1 is the declared tested baseline; platform limits, package metadata, explicit packaged files, and a locked dependency-license inventory are documented. Package verification and publication dry run passed. The API, NIST attribution, README and potential-errata reviews are complete; MSRV/CI review, final-revision verification, registry authorization and actual publication remain. The inventory is not a linked-binary redistribution bundle. |
+| In progress | **G8 Release preparation** | Rust 1.85.0 is the minimum supported compiler; platform limits, package metadata, explicit packaged files, and a locked dependency-license inventory are documented. Package verification and publication dry run passed before the MSRV changes. The API, NIST attribution, README, potential-errata and MSRV reviews are complete; regular-suite/MSRV CI, final-revision verification, registry authorization and actual publication remain. The inventory is not a linked-binary redistribution bundle. |
 | Scope decision | **G9 Operational source integration** | If this becomes a device-facing source library, design GetNoise/GetEntropy/HealthTest interfaces, startup withholding, on-demand operation and recovery. Otherwise document those responsibilities as outside the assessment crate. |
 
 G1 is implemented by `assess_validation` for byte-valued raw samples and unpacked conditioned output bits. It enforces dataset sizes, consistent track selection, H_submitter, complete evidence, restart acceptance, and conditioning block units. G2 now has a pinned build/comparison harness and Linux CI configuration (the user reports a successful hosted run in 15 minutes 9 seconds); G3 now includes successful IID and non-IID restart comparisons. The six-command CLI now exposes these numerical workflows with documented version 1 reports. Release preparation and CI on the final revision remain the next steps.

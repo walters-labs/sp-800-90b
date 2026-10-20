@@ -2,7 +2,7 @@
 name = "sp-800-90b"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.97.1"
+rust-version = "1.85"
 description = "NIST SP 800-90B entropy assessment library and command-line tools"
 license-file = "LICENSE"
 repository = "https://github.com/walters-labs/sp-800-90b"

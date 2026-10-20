@@ -136,9 +136,10 @@ pub fn conditioning_entropy(
     if let ConditioningKind::NonVetted {
         assessed_entropy_per_bit: h,
     } = &kind
-        && (!h.is_finite() || !(0..=1).contains(h))
     {
-        return Err(ConditioningError::InvalidPerBitEntropy);
+        if !h.is_finite() || !(0..=1).contains(h) {
+            return Err(ConditioningError::InvalidPerBitEntropy);
+        }
     }
     validate_truncation(
         output_bits,

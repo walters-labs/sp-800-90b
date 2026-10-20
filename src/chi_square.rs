@@ -124,7 +124,7 @@ fn chi_square_tail(statistic: &Float, df: usize) -> Float {
     }
     let x = Float::with_val(prec, statistic / 2);
     let exponential = (-x.clone()).exp();
-    let tail = if df.is_multiple_of(2) {
+    let tail = if df % 2 == 0 {
         let mut term = exponential;
         let mut sum = term.clone();
         for j in 1..df / 2 {

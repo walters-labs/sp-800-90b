@@ -7,7 +7,7 @@ tools implementing NIST SP 800-90B numerical assessments. Includes all ten non-I
 estimators, IID tests, restart testing, conditioning bounds, and streaming RCT/APT
 health tests. Results retain high-precision values and diagnostic evidence.
 
-**Requires Rust 1.97.1 and a native C build toolchain.** The assessment engine uses
+**Requires Rust 1.85 or later and a native C build toolchain.** The assessment engine uses
 MPFR through `rug`; this is currently a `std` library, not an embedded/`no_std`
 package. It provides numerical evidence, not entropy-source certification.
 
@@ -36,9 +36,9 @@ and `diffutils` (for example, `sudo apt-get install build-essential m4 diffutils
 on Ubuntu). Use a checkout path without spaces, a native dependency limitation.
 **The NIST repository, jsoncpp, and OpenSSL are not required to use this crate.**
 
-Rust 1.97.1 is the declared tested baseline; older compiler support has not yet
-been established. Development checks cover Apple Silicon macOS, and reference
-CI targets Ubuntu 24.04 x86-64. Windows and other targets are unverified.
+The minimum supported Rust version (MSRV) is 1.85.0, tested with the checked-in
+`Cargo.lock`. Development checks cover Apple Silicon macOS, and reference CI
+targets Ubuntu 24.04 x86-64. Windows and other targets are unverified.
 
 ## Choose a workflow
 

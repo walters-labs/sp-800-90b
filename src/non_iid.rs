@@ -226,15 +226,15 @@ pub(crate) fn prepare(samples: &[u8], options: NonIidOptions) -> Result<Prepared
             bits: options.precision_bits,
         });
     }
-    if let Some(bits) = options.bits_per_symbol
-        && !(1..=8).contains(&bits)
-    {
-        return Err(AssessmentError::InvalidBitsPerSymbol { bits });
+    if let Some(bits) = options.bits_per_symbol {
+        if !(1..=8).contains(&bits) {
+            return Err(AssessmentError::InvalidBitsPerSymbol { bits });
+        }
     }
-    if let Some(limit) = options.bitstring_limit
-        && limit < 2
-    {
-        return Err(AssessmentError::InvalidBitstringLimit { limit });
+    if let Some(limit) = options.bitstring_limit {
+        if limit < 2 {
+            return Err(AssessmentError::InvalidBitstringLimit { limit });
+        }
     }
     if samples.len() < 2 {
         return Err(AssessmentError::TooFewSamples {
@@ -444,10 +444,10 @@ pub(crate) fn assess_dataset(
     );
     let mut min_entropy = Float::with_val(precision_bits, ceiling);
     for result in &estimators {
-        if let EstimatorOutcome::Available(details) = &result.outcome
-            && details.min_entropy() < &min_entropy
-        {
-            min_entropy = details.min_entropy().clone();
+        if let EstimatorOutcome::Available(details) = &result.outcome {
+            if details.min_entropy() < &min_entropy {
+                min_entropy = details.min_entropy().clone();
+            }
         }
     }
     NonIidDatasetAssessment {
@@ -491,10 +491,10 @@ pub fn assess_non_iid(
     if prepared.alphabet.len() == 1 {
         min_entropy = Float::with_val(options.precision_bits, 0);
     }
-    if let Some(result) = &literal
-        && result.min_entropy < min_entropy
-    {
-        min_entropy = result.min_entropy.clone();
+    if let Some(result) = &literal {
+        if result.min_entropy < min_entropy {
+            min_entropy = result.min_entropy.clone();
+        }
     }
     if let Some(result) = &bitstring {
         let per_symbol =

@@ -321,13 +321,14 @@ pub fn assess_validation_with_progress(
             component.internal_width(),
         ),
     });
-    if let Some((samples, out, width)) = dimensions
-        && (samples == 0
+    if let Some((samples, out, width)) = dimensions {
+        if samples == 0
             || out == 0
             || width == 0
-            || samples.checked_mul(o.bits_per_symbol as u32).is_none())
-    {
-        return Err(ValidationError::InvalidConditioningData);
+            || samples.checked_mul(o.bits_per_symbol as u32).is_none()
+        {
+            return Err(ValidationError::InvalidConditioningData);
+        }
     }
     if let Some((samples, _, _)) = dimensions {
         crate::conditioning::account_conditioning_inputs(
