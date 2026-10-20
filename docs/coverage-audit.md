@@ -1,6 +1,11 @@
 # SP 800-90B coverage audit
 
-Updated: 2026-10-20 (original audit: 2026-10-19). Scope: the current working tree, including uncommitted files, based on commit `1639d1e0466b955c7e1d37c5734151e889c422d6`. Reference implementation: local NIST checkout at `87c104d0ed4cbc96103e7b8b38d6f2c7e0a6b289`.
+Updated: 2026-10-20 (original audit: 2026-10-19). Implementation scope: published
+release `v0.1.0`, commit
+[`0b4831660435445814c07211724ea7321a980959`](https://github.com/walters-labs/sp-800-90b/commit/0b4831660435445814c07211724ea7321a980959).
+Reference implementation: pinned NIST revision
+`87c104d0ed4cbc96103e7b8b38d6f2c7e0a6b289`. This post-release documentation update
+records the evidence for that implementation; it changes no numerical behavior.
 
 The core numerical engine is broadly implemented. The crate is **not yet a complete implementation of the entire publication or a command-compatible replacement for NIST's package**. The strict numerical validation workflow now applies the submitter bound and coordinates track selection, restart testing, and conditioning. Additional-source accounting is implemented for concatenated conditioning inputs. Ranked symbol reduction is available for unsigned inputs up to 128 bits. Release evidence also needs expansion, especially complete validation-workflow comparisons.
 
@@ -74,7 +79,7 @@ Source links for the corresponding code are collected in [the public module expo
 | `ea_restart` | `assess_restart`, installed `sp-800-90b restart` | Explicit Rust flags/report contract; refuses validated IID entropy after rejected/unavailable checks |
 | `ea_conditioning` | `conditioning_entropy`, `examples/conditioning.rs`, installed `conditioning` command with JSON | Standalone file-to-h' orchestration (available through `validate`), reference epsilon diagnostics and full-entropy eligibility messages |
 | `ea_transpose` | `restart_column_sequence`, installed `transpose` utility | Fixed 1000×1000 matrices; explicit byte offset/selection flags rather than NIST flag aliases |
-| Reference self-test runner | `scripts/reference_harness.py`, pinned isolated builds and seven Rust reference targets; Linux CI configured | Final uncommitted revision still needs hosted CI; full workflow parity is a separate coverage goal |
+| Reference self-test runner | `scripts/reference_harness.py`, pinned isolated builds and seven Rust reference targets; Linux CI passed for `v0.1.0` | Full validation-workflow parity is a separate coverage goal |
 
 `src/main.rs` provides `non-iid`, `iid`, `restart`, `conditioning`, `validate`, and `transpose` commands with versioned JSON reports and explicit completion/rejection/error exit codes. Transposition writes a new file and refuses overwrite. Example programs may return successfully after printing rejected assessments; their process exit status must not be used as an assessment pass indicator. The installed CLI intentionally uses its own flags and result contract.
 
@@ -95,9 +100,50 @@ These require preservation in documentation and regression tests rather than aut
 
 ## Evidence and its limits
 
-Latest full regular-suite verification on 2026-10-20, with Rust 1.85.0 and
-stable (Rust 1.97.1) on Apple Silicon macOS after separating `no_std` health
-monitoring and adding regular CI:
+### Published v0.1.0 verification
+
+The [crates.io package](https://crates.io/crates/sp-800-90b/0.1.0) and
+[GitHub release](https://github.com/walters-labs/sp-800-90b/releases/tag/v0.1.0)
+were published on 2026-10-20. The release tag resolves to commit
+`0b4831660435445814c07211724ea7321a980959`, the revision verified by both hosted
+workflows below.
+
+- **Regular CI:** [run 39484659047](https://github.com/walters-labs/sp-800-90b/actions/runs/39484659047)
+  passed all four jobs on Ubuntu 24.04 x86-64 using Rust 1.85.0 and stable
+  (Rust 1.99.1 in this run). Each compiler passed **178 default-feature tests and
+  16 doctests**, with 36 opt-in tests ignored, plus **10 minimal-feature tests and
+  1 doctest**. Assessment-only compilation, the minimal dependency guard,
+  `thumbv7em-none-eabi` library compilation, and full/minimal documentation builds
+  with warnings denied passed. Stable also passed formatting and full/minimal
+  Clippy with warnings denied.
+- **Strict NIST reference comparison:** [run 39484659051](https://github.com/walters-labs/sp-800-90b/actions/runs/39484659051)
+  passed on Ubuntu 24.04 x86-64 with Rust 1.97.1 and the pinned NIST revision.
+  The report records `long_double_mantissa_bits: 64`, status `passed`, and no
+  failures. All **28 Rust reference tests across seven targets** passed, as did
+  all **11 fresh-NIST-versus-bundled-`refdata` baseline comparisons**. The binary64
+  baseline allowance was disabled. The workflow's `nist-reference-results`
+  artifact contains `20261020T193559Z-2777/report.json` and the command logs.
+- **Release package:** `cargo package --locked` and
+  `cargo publish --dry-run --locked` passed on Apple Silicon macOS. The package
+  contains 87 files, including the README, guides, provenance record, dependency
+  inventory, and all three license files. The unpacked package passed default
+  and assessment-only all-target compilation on Rust 1.85.0; minimal-feature
+  tests, its doctest, and bare-metal compilation also passed, with no enabled
+  normal/build dependencies in the minimal configuration. The published registry
+  checksum matches the verified local `.crate` archive:
+  `e692f21f34d0cafdf867ce5ca0a37b390c8eb1909223f954dff09cdbb828b674`.
+
+The Rust comparisons use freshly built NIST outputs. The separate baseline
+check compares fresh NIST outputs with bundled `refdata`; this is not a direct
+Rust-to-`refdata` comparison. Passing these fixtures does not establish complete
+validation-workflow parity or source certification. The bare-metal check verifies
+compilation, not execution on a device.
+
+### Local supporting checks
+
+Local verification also passed on 2026-10-20, with Rust 1.85.0 and the locally
+installed stable toolchain (Rust 1.97.1) on Apple Silicon macOS after separating
+`no_std` health monitoring and adding regular CI:
 
 - `cargo test --locked --offline --all-targets` on each compiler: **178 passed, 0 failed, 36 opt-in tests ignored**, including both named potential-errata regressions.
 - `cargo test --locked --offline --doc` on each compiler: **16 passed**.
@@ -117,12 +163,13 @@ choices. Six `if let` chains were rewritten as nested conditions and one integer
 `is_multiple_of(2)` call became `% 2 == 0`; the conditions, calculations and
 dependency versions are unchanged. All targets, including the CLI, examples and
 opt-in test binaries, compile on the MSRV; the ignored tests were not executed
-in this check. The reference CI workflow still selects Rust 1.97.1. The separate
-[regular CI workflow](../.github/workflows/ci.yml) now checks default, assessment-only
+in the regular suite; the reference workflow runs its seven opt-in targets
+separately. The reference CI workflow selects Rust 1.97.1. The separate
+[regular CI workflow](https://github.com/walters-labs/sp-800-90b/blob/main/.github/workflows/ci.yml) checks default, assessment-only
 and minimal features on Rust 1.85.0 and stable, including minimal dependency
 isolation and bare-metal compilation. Stable jobs also enforce formatting and
 Clippy; both compilers build full/minimal documentation with warnings denied.
-This new workflow still needs its first hosted run after these changes are pushed.
+Both workflows passed for the published release, as recorded above.
 
 The default features remain `assessment` and `cli`, preserving the existing API
 and commands. `HealthTests` delegates monitoring to the same allocation-free
@@ -136,10 +183,9 @@ chunk/window boundaries, sparse alphabets, retained prefixes after input errors,
 counter overflow/saturation, reset, and the valid APT cutoff W+1. Hardware
 integration and automatic output gating remain application responsibilities.
 
-The [latest reference verification](#reference-verification--2026-10-20) records
-local evidence paths. An earlier Linux CI success was reported by the user;
-the final uncommitted CLI revision still needs a hosted run. The following
-limits come from the test assertions:
+The [earlier M1 reference verification](#reference-verification--2026-10-20)
+records local evidence paths; the [published release verification](#published-v010-verification)
+records the strict Linux result. The following limits come from the test assertions:
 
 | Suite | What it checks | What it does not establish |
 | --- | --- | --- |
@@ -153,23 +199,27 @@ limits come from the test assertions:
 | `conditioning_reference.rs` | Eight vetted/non-vetted outputs and nine typed-component dimension cases within tolerance | Full parameter domain, all near-full-entropy regimes or a formal rounding proof |
 | `health.rs` / `health_core.rs` tests | Published cutoff examples, exported parameters, streaming semantics in full/minimal builds, integer parameter validation and counter boundaries | Device fault injection, operational failure response or arbitrary-parameter interval certification |
 
-Individual reference tests can be run against caller-supplied environment paths. The harness provides stronger provenance: it exports the pinned source, rebuilds tools/adapters, generates fresh fixture results, and records hashes, compiler flags, precision and timings. Linux reference CI is configured; local M1 results and a previously reported Linux run do not constitute a comprehensive cross-platform test matrix. Dedicated benchmark and fuzz suites remain open, as does complete validation-workflow reference parity.
+Individual reference tests can be run against caller-supplied environment paths. The harness provides stronger provenance: it exports the pinned source, rebuilds tools/adapters, generates fresh fixture results, and records hashes, compiler flags, precision and timings. The successful Linux release CI and local Apple Silicon checks do not constitute a comprehensive cross-platform test matrix. Dedicated benchmark and fuzz suites remain open, as does complete validation-workflow reference parity.
 
 ## Prioritized completion work
 
 | Priority | Gap | Concrete completion criterion |
 | --- | --- | --- |
 | Done | **G1 Validation workflow and submitter bound** | `assess_validation` accepts H_submitter, checks dataset eligibility, coordinates one IID/non-IID track, restart and conditioning, and withholds final entropy on incomplete or rejected evidence. Exploratory APIs remain available; integration tests cover bounds, units and decisions. |
-| Implemented; final revision CI pending | **G2 Reproducible reference harness and CI** | Pinned builds, adapters, provenance and fresh results are implemented; all 28 local reference tests passed. An earlier hosted Linux run passed per the user. Run CI on the final committed revision. |
+| Verified for v0.1.0 | **G2 Reproducible reference harness and CI** | Pinned builds, adapters, provenance and fresh results are implemented. Strict Linux reference CI passed on the published commit: 28 reference tests and all 11 NIST baseline comparisons, with 64-bit `long double` precision and no binary64 allowance. See the release verification above. |
 | Implemented | **G3 Restart validation evidence** | Positive-H_I binary/nonbinary non-IID success, sanity-pass/entropy-rejection, and successful IID restart comparisons with deterministic permutation control are implemented. |
 | Done (up to 128 bits) | **G4 Wider symbol support** | `SymbolReduction` preserves sample boundaries and records input/output widths, ranking, and entropy ceiling. Tests cover bit order, width boundaries, invalid rankings and samples, exhaustive 16-bit projection, and downstream NIST reference agreement. |
 | Implemented | **G5 Conditioning integration** | Typed Table 1 dimensions, vetted truncation, and strict assessment integration are implemented. Explicit additional-source accounting is implemented. |
 | Implemented (schema version 1) | **G6 CLI and reports** | All six commands expose documented flags and applicable status/exit, decimal-string entropy, hash and seed fields. Non-IID/IID/restart/transpose support selection; validate reads full files and conditioning accepts numerical inputs. Full intermediate estimator diagnostics remain API-only; NIST flag aliases are intentionally absent. |
 | P2 | **G7 Numerical and robustness coverage** | Named regressions cover both potential errata as described above. Add independent golden vectors, rounding-bound tests for conditioning, tail minimality/boundary checks for health cutoffs, and property/fuzz tests for preprocessing and state machines. Benchmark time and peak memory on representative million-sample inputs. |
-| In progress | **G8 Release preparation** | Rust 1.85.0 is the minimum supported compiler; platform limits, package metadata, explicit packaged files, and a locked dependency-license inventory are documented. Package verification and publication dry run passed before the MSRV/feature changes. The API, NIST attribution, README, potential-errata and MSRV reviews are complete; regular-suite/MSRV/feature CI is configured. Hosted CI and package verification on the final revision, registry authorization and actual publication remain. The inventory is not a linked-binary redistribution bundle. |
+| Published v0.1.0 | **G8 Release preparation** | The API, NIST attribution, README, potential-errata and MSRV reviews are complete. Rust 1.85.0 support, feature configurations, package contents and both hosted workflows were verified on the published revision. Version 0.1.0 is published on crates.io and GitHub; the registry archive checksum matches the verified package. Platform limits and dependency licenses remain documented. Prebuilt CLI binaries are not provided; the license inventory is not a linked-binary redistribution bundle. |
 | Partial; further scope decision | **G9 Operational source integration** | Allocation-free `no_std` RCT/APT monitoring is available. GetNoise/GetEntropy interfaces, output gating, on-demand operation and failure recovery remain application responsibilities; adding those device operations would require a separate scope decision. |
 
-G1 is implemented by `assess_validation` for byte-valued raw samples and unpacked conditioned output bits. It enforces dataset sizes, consistent track selection, H_submitter, complete evidence, restart acceptance, and conditioning block units. G2 now has a pinned build/comparison harness and Linux CI configuration (the user reports a successful hosted run in 15 minutes 9 seconds); G3 now includes successful IID and non-IID restart comparisons. The six-command CLI now exposes these numerical workflows with documented version 1 reports. Release preparation and CI on the final revision remain the next steps.
+Version 0.1.0 publishes the numerical workflows through the library and six-command
+CLI, with successful package verification and both hosted CI workflows on the
+release commit. Remaining work includes broader numerical and robustness coverage,
+performance benchmarks, and complete validation-workflow reference comparisons.
+Operational source integration remains a separate scope decision.
 
 ## Requirements that remain external
 

@@ -17,20 +17,20 @@ This crate provides numerical evidence, not entropy-source certification.
 
 ## Install
 
-Until the first crates.io release, add the library from Git:
+Add the library from [crates.io](https://crates.io/crates/sp-800-90b):
 
 ```sh
-cargo add sp-800-90b --git https://github.com/walters-labs/sp-800-90b
+cargo add sp-800-90b
 ```
 
-To build and install the CLI from source:
+Build and install the CLI from crates.io:
 
 ```sh
-git clone https://github.com/walters-labs/sp-800-90b.git
-cd sp-800-90b
-cargo install --path . --locked
+cargo install sp-800-90b --locked
 sp-800-90b --help
 ```
+
+From an existing source checkout, use `cargo install --path . --locked`.
 
 The first default build compiles GMP/MPFR and can take several minutes. On macOS, install
 the Xcode Command Line Tools. On GNU/Linux, install a C compiler, `make`, `m4`,
@@ -51,7 +51,7 @@ revision-specific results.
 To use only the streaming health tests, disable default features:
 
 ```sh
-cargo add sp-800-90b --git https://github.com/walters-labs/sp-800-90b --no-default-features
+cargo add sp-800-90b --no-default-features
 ```
 
 This configuration provides `HealthTestConfig`, `HealthTestMonitor`, and their
@@ -84,6 +84,10 @@ host-to-firmware workflow.
 
 For the full library without CLI dependencies, disable defaults and enable
 `assessment`.
+
+```sh
+cargo add sp-800-90b --no-default-features --features assessment
+```
 
 ## Choose a workflow
 
@@ -232,6 +236,13 @@ Regular CI runs tests and doctests on the MSRV and stable, checks the minimal
 core has no normal or build dependencies, and compiles it for a bare-metal
 target. It also checks formatting, Clippy, and documentation warnings. The
 NIST reference comparison runs in a separate workflow.
+
+Release `v0.1.0` at commit
+[`0b48316`](https://github.com/walters-labs/sp-800-90b/commit/0b4831660435445814c07211724ea7321a980959)
+passed [regular CI](https://github.com/walters-labs/sp-800-90b/actions/runs/39484659047)
+and the [reference comparison](https://github.com/walters-labs/sp-800-90b/actions/runs/39484659051)
+on Ubuntu 24.04 x86-64. The reference run passed all 28 tests across seven suites
+and all 11 NIST baseline comparisons.
 
 The reference harness builds pinned NIST revision
 `87c104d0ed4cbc96103e7b8b38d6f2c7e0a6b289`, generates fresh results, and compares
