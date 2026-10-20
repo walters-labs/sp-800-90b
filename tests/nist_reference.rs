@@ -1,3 +1,5 @@
+#![cfg(feature = "assessment")]
+
 //! Optional comparison against an external, already-tested NIST checkout.
 use sp_800_90b::most_common_value;
 use std::{fs, path::PathBuf};

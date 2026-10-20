@@ -1,3 +1,5 @@
+#![cfg(feature = "assessment")]
+
 use rug::Float;
 use sp_800_90b::*;
 use std::{fs, path::PathBuf, process::Command};

@@ -1,3 +1,5 @@
+#![cfg(feature = "assessment")]
+
 use rug::Float;
 use sp_800_90b::{
     ConfidenceConstant, EstimateError, LagOptions, lag_estimate, lag_estimate_with_options,

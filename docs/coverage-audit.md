@@ -56,7 +56,7 @@ to the publication. Both entries now have explicitly named regression tests:
 | §3.1.4 restart | Implemented with validation gaps | `restart.rs`; strict matrix size, simulated cutoff, both estimator tracks, transpose | Positive-entropy IID/non-IID success and non-IID entropy rejection are covered; complete validation-workflow comparison remains separate |
 | §3.1.5 conditioning bounds | Formula implemented | `conditioning.rs`; directed rounding, eight raw-dimension reference cases and nine typed-component cases | Caller supplies widths, h_in, h'; typed Table 1 dimensions, proportional truncation and numerical orchestration are implemented; additional-source accounting is implemented |
 | §3.1.6 additional sources | Implemented numerical accounting | Separate primary/additional/total lengths; only primary entropy and width credited; vetted conditioning enforced | Correct physical source identification and actual concatenation remain external |
-| §4.4 RCT/APT | Implemented | `health.rs`; all ten Table 2 cutoffs, boundaries, chunking, latching, reset | Only byte-valued alphabets; optional opposite-symbol binary APT extension absent |
+| §4.4 RCT/APT | Implemented, including `no_std` monitoring | `health.rs` calculates MPFR cutoffs; `health_core.rs` provides allocation-free monitoring from validated integer parameters; all ten Table 2 cutoffs, boundaries, chunking, latching, reset | Only byte-valued alphabets; optional opposite-symbol binary APT extension absent; cutoff derivation requires `assessment` |
 | §4.2–4.3 startup and on-demand operations | Partial | Startup sample counter, readiness, explicit reset | Device output gating, failure recovery, on-demand scheduling, and source-specific tests are not implemented |
 | §6.4 symbol-space reduction | Implemented (up to 128 bits) | `SymbolReduction` validates a complete caller-supplied ranking and selects 1–8 bits per sample | Source-model ranking and file byte order remain caller responsibilities; arbitrary-width and alternative reductions are not supported |
 | Appendix E internal-width accounting | Partial | Conditioning clamps nw to n_in | Caller must establish component width |
@@ -96,11 +96,15 @@ These require preservation in documentation and regression tests rather than aut
 ## Evidence and its limits
 
 Latest full regular-suite verification on 2026-10-20, with Rust 1.85.0 on Apple
-Silicon macOS after the MSRV compatibility changes:
+Silicon macOS after separating `no_std` health monitoring:
 
-- `cargo +1.85.0 test --locked --offline --all-targets`: **166 passed, 0 failed, 36 opt-in tests ignored**, including both named potential-errata regressions.
-- `cargo +1.85.0 test --locked --offline --doc`: **14 passed**.
-- Clippy with warnings denied and formatting on Rust 1.97.1, and whitespace checks: passed.
+- `cargo +1.85.0 test --locked --offline --all-targets`: **178 passed, 0 failed, 36 opt-in tests ignored**, including both named potential-errata regressions.
+- `cargo +1.85.0 test --locked --offline --doc`: **16 passed**.
+- With `--no-default-features`: **10 tests and 1 doctest passed**; all test targets compile, with assessment/CLI tests disabled.
+- `cargo +1.85.0 check --locked --offline --no-default-features --features assessment --all-targets`: passed, covering the full library without the CLI.
+- Minimal library compilation for `thumbv7em-none-eabi` on Rust 1.85.0: passed. This is a compile check, not hardware execution.
+- The minimal normal dependency tree contains only `sp-800-90b`.
+- Clippy with warnings denied for full/minimal features and formatting on Rust 1.97.1, and whitespace checks: passed. Full/minimal rustdoc builds pass with warnings denied on Rust 1.85.0.
 - Before the API usability additions, the pinned reference harness separately ran **28 reference tests across seven targets; all passed**. Its qualified status was `passed_with_binary64_baseline_differences`: nine clean baseline datasets and the two documented M1 exceptions.
 - The new full-size restart and validation CLI tests were run separately and passed, including IID success, fallback, conditioning, and rejection. The regular-suite ignored count is not a claim that all opt-in tests were skipped throughout the session or that all 36 were rerun together.
 
@@ -112,7 +116,19 @@ choices. Six `if let` chains were rewritten as nested conditions and one integer
 dependency versions are unchanged. All targets, including the CLI, examples and
 opt-in test binaries, compile on the MSRV; the ignored tests were not executed
 in this check. The reference CI workflow still selects Rust 1.97.1. Enforcing the
-MSRV in regular-suite CI remains a release task.
+MSRV and feature configurations in regular-suite CI remains a release task.
+
+The default features remain `assessment` and `cli`, preserving the existing API
+and commands. `HealthTests` delegates monitoring to the same allocation-free
+`HealthTestMonitor` available with no default features. `HealthTestConfig` accepts
+precomputed integer cutoffs and derives the standard window from the alphabet.
+It validates structural ranges, not statistical suitability; host-side
+`HealthTestCutoffs::monitor_config()` exports parameters from the MPFR result.
+The minimal core uses no `std`, `alloc`, floating-point operations or external
+dependencies. Tests cover rejection at cutoff equality, startup counting,
+chunk/window boundaries, sparse alphabets, retained prefixes after input errors,
+counter overflow/saturation, reset, and the valid APT cutoff W+1. Hardware
+integration and automatic output gating remain application responsibilities.
 
 The [latest reference verification](#reference-verification--2026-10-20) records
 local evidence paths. An earlier Linux CI success was reported by the user;
@@ -129,7 +145,7 @@ limits come from the test assertions:
 | `restart_reference.rs` | Binary and four-bit non-IID restart cases with positive H_I; sanity-pass/entropy-rejection case; exact seeded sanity cutoffs; H_I=0 baseline, seeded successful IID restart and IID incomplete-check propagation | Broader source fixtures |
 | Restart simulator tests | Seeded 10,000-trial quantile parity at five H values; full five-million-trial sanity rejection | Distribution of empirical cutoff variation (positive-H_I workflow comparisons are covered separately) |
 | `conditioning_reference.rs` | Eight vetted/non-vetted outputs and nine typed-component dimension cases within tolerance | Full parameter domain, all near-full-entropy regimes or a formal rounding proof |
-| `health.rs` tests | Published cutoff examples and streaming semantics | Device fault injection, operational failure response or arbitrary-parameter interval certification |
+| `health.rs` / `health_core.rs` tests | Published cutoff examples, exported parameters, streaming semantics in full/minimal builds, integer parameter validation and counter boundaries | Device fault injection, operational failure response or arbitrary-parameter interval certification |
 
 Individual reference tests can be run against caller-supplied environment paths. The harness provides stronger provenance: it exports the pinned source, rebuilds tools/adapters, generates fresh fixture results, and records hashes, compiler flags, precision and timings. Linux reference CI is configured; local M1 results and a previously reported Linux run do not constitute a comprehensive cross-platform test matrix. Dedicated benchmark and fuzz suites remain open, as does complete validation-workflow reference parity.
 
@@ -144,8 +160,8 @@ Individual reference tests can be run against caller-supplied environment paths.
 | Implemented | **G5 Conditioning integration** | Typed Table 1 dimensions, vetted truncation, and strict assessment integration are implemented. Explicit additional-source accounting is implemented. |
 | Implemented (schema version 1) | **G6 CLI and reports** | All six commands expose documented flags and applicable status/exit, decimal-string entropy, hash and seed fields. Non-IID/IID/restart/transpose support selection; validate reads full files and conditioning accepts numerical inputs. Full intermediate estimator diagnostics remain API-only; NIST flag aliases are intentionally absent. |
 | P2 | **G7 Numerical and robustness coverage** | Named regressions cover both potential errata as described above. Add independent golden vectors, rounding-bound tests for conditioning, tail minimality/boundary checks for health cutoffs, and property/fuzz tests for preprocessing and state machines. Benchmark time and peak memory on representative million-sample inputs. |
-| In progress | **G8 Release preparation** | Rust 1.85.0 is the minimum supported compiler; platform limits, package metadata, explicit packaged files, and a locked dependency-license inventory are documented. Package verification and publication dry run passed before the MSRV changes. The API, NIST attribution, README, potential-errata and MSRV reviews are complete; regular-suite/MSRV CI, final-revision verification, registry authorization and actual publication remain. The inventory is not a linked-binary redistribution bundle. |
-| Scope decision | **G9 Operational source integration** | If this becomes a device-facing source library, design GetNoise/GetEntropy/HealthTest interfaces, startup withholding, on-demand operation and recovery. Otherwise document those responsibilities as outside the assessment crate. |
+| In progress | **G8 Release preparation** | Rust 1.85.0 is the minimum supported compiler; platform limits, package metadata, explicit packaged files, and a locked dependency-license inventory are documented. Package verification and publication dry run passed before the MSRV/feature changes. The API, NIST attribution, README, potential-errata and MSRV reviews are complete; regular-suite/MSRV/feature CI, final-revision verification, registry authorization and actual publication remain. The inventory is not a linked-binary redistribution bundle. |
+| Partial; further scope decision | **G9 Operational source integration** | Allocation-free `no_std` RCT/APT monitoring is available. GetNoise/GetEntropy interfaces, output gating, on-demand operation and failure recovery remain application responsibilities; adding those device operations would require a separate scope decision. |
 
 G1 is implemented by `assess_validation` for byte-valued raw samples and unpacked conditioned output bits. It enforces dataset sizes, consistent track selection, H_submitter, complete evidence, restart acceptance, and conditioning block units. G2 now has a pinned build/comparison harness and Linux CI configuration (the user reports a successful hosted run in 15 minutes 9 seconds); G3 now includes successful IID and non-IID restart comparisons. The six-command CLI now exposes these numerical workflows with documented version 1 reports. Release preparation and CI on the final revision remain the next steps.
 

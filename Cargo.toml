@@ -14,12 +14,47 @@ include = [
     "src/**", "examples/**", "tests/**", "docs/**", "scripts/*.py",
 ]
 
+[features]
+default = ["assessment", "cli"]
+# Offline estimation and high-precision cutoff calculation require std and MPFR.
+assessment = ["dep:rug", "dep:bzip2", "dep:getrandom"]
+cli = ["assessment", "dep:serde_json", "dep:sha2"]
+
 [dependencies]
-serde_json = "1"
-sha2 = "0.10"
-bzip2 = "0.6"
-getrandom = "0.4"
-rug = { version = "1.30", default-features = false, features = ["float", "std"] }
+serde_json = { version = "1", optional = true }
+sha2 = { version = "0.10", optional = true }
+bzip2 = { version = "0.6", optional = true }
+getrandom = { version = "0.4", optional = true }
+rug = { version = "1.30", optional = true, default-features = false, features = ["float", "std"] }
+
+[[bin]]
+name = "sp-800-90b"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[[example]]
+name = "conditioning"
+required-features = ["assessment"]
+
+[[example]]
+name = "health"
+required-features = ["assessment"]
+
+[[example]]
+name = "iid"
+required-features = ["assessment"]
+
+[[example]]
+name = "mcv"
+required-features = ["assessment"]
+
+[[example]]
+name = "non_iid"
+required-features = ["assessment"]
+
+[[example]]
+name = "restart"
+required-features = ["assessment"]
 
 # Keep full-data assessment tests practical without rebuilding native dependencies.
 [profile.test.package.sp-800-90b]

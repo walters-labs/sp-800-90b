@@ -1,3 +1,5 @@
+#![cfg(feature = "assessment")]
+
 use sp_800_90b::{
     ConfidenceConstant, EstimateError, MultiMmcOptions, multi_mmc_estimate,
     multi_mmc_estimate_with_options,

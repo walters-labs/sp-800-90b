@@ -1,3 +1,5 @@
+#![cfg(feature = "assessment")]
+
 use sp_800_90b::*;
 #[test]
 fn hand_computed_periodic_statistics() {

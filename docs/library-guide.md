@@ -12,12 +12,13 @@ rustdoc-style lines beginning with `#` supply example setup or return values.
 - [Restart testing](#restart-testing)
 - [Conditioning](#conditioning-entropy), [typed components](#typed-vetted-conditioning-components), [truncation](#truncating-vetted-conditioning-output), [additional sources](#additional-noise-source-input-accounting-316)
 - [Streaming health tests](#continuous-health-tests)
+- [Embedded health monitoring](#embedded-health-monitoring)
 - [Strict validation workflow](#strict-numerical-validation-workflow)
 - [Wider symbols](#reducing-wider-samples-64)
 
 ## Precision and reference compatibility
 
-Arithmetic uses `rug::Float` backed by MPFR, with **256-bit significand precision**
+Assessment arithmetic uses `rug::Float` backed by MPFR, with **256-bit significand precision**
 by default on all architectures, including Apple Silicon. Counts are integers;
 probability, square-root, and logarithm calculations remain high precision.
 The result is not narrowed to `f64` unless the caller explicitly requests it.
@@ -743,7 +744,8 @@ cargo run --example conditioning -- 512 128 256 400 0.5
 ## Continuous health tests
 
 `HealthTests` implements Repetition Count (RCT) and Adaptive Proportion (APT)
-from §4.4 on **raw noise-source samples**. Supply the assessed entropy per sample
+from §4.4 on **raw noise-source samples**, with the `assessment` feature enabled
+(the default). Supply the assessed entropy per sample
 and the source's alphabet size, rather than inferring an alphabet from a small
 chunk. Byte-valued symbols may be sparse; encountering more distinct symbols than
 the configured alphabet produces an error without consuming that sample.
@@ -786,6 +788,82 @@ cutoff table plus exact boundary, biased-stream, chunking, and reset tests.
 ```sh
 cargo run --example health -- raw-samples.bin 1 2
 ```
+
+### Embedded health monitoring
+
+With default features disabled, the library is `no_std`, allocation-free and has
+no external dependencies. `HealthTestMonitor` implements the same streaming
+state machine used by `HealthTests`; only cutoff derivation and the retained
+MPFR diagnostics require the `assessment` feature. The CLI requires `cli`,
+which enables `assessment`. With only `assessment`, CLI dependencies are omitted.
+
+Calculate cutoffs on a host with the default features, using the assessed
+entropy of the source and your chosen false-positive parameter:
+
+```rust
+use sp_800_90b::{Float, HealthTestOptions, health_test_cutoffs};
+let cutoffs = health_test_cutoffs(
+    &Float::with_val(256, 1),
+    HealthTestOptions::default(),
+).unwrap();
+let config = cutoffs.monitor_config().unwrap();
+assert_eq!(config.alphabet_size(), 2);
+assert_eq!(config.repetition_count(), 21);
+assert_eq!(config.adaptive_proportion(), 589);
+assert_eq!(config.window_size(), 1024);
+```
+
+Carry the three integer parameters into firmware. The following dependency uses
+the Git source until the first crates.io release:
+
+```toml
+[dependencies]
+sp-800-90b = { git = "https://github.com/walters-labs/sp-800-90b", default-features = false }
+```
+
+Firmware can construct both the configuration and initial monitor in a const
+context. This example configuration is specific to H=1 bit/sample, a binary
+alphabet and alpha=2^-20; it is not a default for unknown sources:
+
+```rust
+use sp_800_90b::{HealthTestConfig, HealthTestMonitor};
+const CONFIG: HealthTestConfig = match HealthTestConfig::new(2, 21, 589) {
+    Ok(config) => config,
+    Err(_) => panic!("invalid health-test parameters"),
+};
+let mut monitor = HealthTestMonitor::new(CONFIG);
+for _ in 0..512 {
+    monitor.observe_slice(&[0, 1]).unwrap();
+}
+assert!(monitor.status().startup_ready());
+```
+
+`HealthTestConfig` validates alphabet size (2..=256), an RCT cutoff of at least 2,
+and an APT cutoff in 2..=W+1. It derives W=1024 for binary alphabets and W=512
+otherwise. Private fields preserve these structural checks. The constructor
+does not validate a cutoff's statistical suitability; that requires the host
+calculation and a justified entropy bound. `monitor_config()` also checks the
+window length when exporting a report whose public fields may have been edited.
+
+The core retains all streaming behavior described above: sparse symbol values,
+failure latching, reset, startup counting, chunk independence and input errors
+that leave the offending sample unconsumed. It uses fixed-size state and integer
+operations, and does not estimate entropy, generate randomness or gate output.
+
+Reproduce the minimal checks with Rust 1.85.0:
+
+```sh
+cargo +1.85.0 test --locked --no-default-features --all-targets
+cargo +1.85.0 test --locked --no-default-features --doc
+rustup target add thumbv7em-none-eabi --toolchain 1.85.0
+cargo +1.85.0 check --locked --no-default-features --lib --target thumbv7em-none-eabi
+cargo tree --no-default-features --edges normal
+```
+
+The last command lists only this crate. The target check confirms compilation
+for a Cortex-M bare-metal target; behavior tests run on the host, not hardware.
+Cargo features are additive: another dependency enabling `assessment` for this
+crate also enables its `std`/MPFR dependencies.
 
 ## Strict numerical validation workflow
 

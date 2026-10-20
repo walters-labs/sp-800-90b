@@ -1,10 +1,10 @@
-//! Stateful approved health tests (§4.4), on raw noise-source symbols.
+//! MPFR cutoff calculation and the default health-test convenience API (§4.4).
+use crate::{HealthTestConfig, HealthTestError, HealthTestMonitor, HealthTestStatus};
 use rug::{
     Float,
     float::{self, Round},
     ops::Pow,
 };
-use std::{error::Error, fmt};
 #[derive(Clone, Copy, Debug)]
 pub struct HealthTestOptions {
     /// Noise source alphabet size, not the number observed in one chunk.
@@ -22,23 +22,6 @@ impl Default for HealthTestOptions {
         }
     }
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum HealthTestError {
-    InvalidAlphabet,
-    InvalidEntropy,
-    InvalidPrecision,
-    InvalidFalsePositiveExponent,
-    CutoffOutOfRange,
-    AlphabetExceeded,
-    SampleCountOverflow,
-    NumericalFailure,
-}
-impl fmt::Display for HealthTestError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "health test error: {self:?}")
-    }
-}
-impl Error for HealthTestError {}
 #[derive(Clone, Debug)]
 pub struct HealthTestCutoffs {
     pub options: HealthTestOptions,
@@ -131,149 +114,69 @@ pub fn health_test_cutoffs(
         ),
     })
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum HealthTestKind {
-    RepetitionCount,
-    AdaptiveProportion,
-}
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HealthTestFailure {
-    pub test: HealthTestKind,
-    /// Zero-based index since construction or explicit reset.
-    pub sample_index: u64,
-    pub count: u32,
-    pub cutoff: u32,
-}
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HealthTestStatus {
-    pub samples_seen: u64,
-    pub completed_windows: u64,
-    pub samples_in_window: usize,
-    pub first_repetition_failure: Option<HealthTestFailure>,
-    pub first_adaptive_failure: Option<HealthTestFailure>,
-}
-impl HealthTestStatus {
-    pub fn failed(&self) -> bool {
-        self.first_repetition_failure.is_some() || self.first_adaptive_failure.is_some()
+impl HealthTestCutoffs {
+    /// Export validated integer parameters for a dependency-free health monitor.
+    ///
+    /// Checks structural ranges and the alphabet's required window size, since
+    /// these report fields are public. Does not re-derive cutoffs from entropy
+    /// or verify that caller-modified values retain the intended significance.
+    ///
+    /// ```
+    /// use sp_800_90b::{Float, HealthTestOptions, HealthTestMonitor, health_test_cutoffs};
+    /// let cutoffs = health_test_cutoffs(&Float::with_val(256, 1), HealthTestOptions::default())?;
+    /// let config = cutoffs.monitor_config()?;
+    /// assert_eq!(config.repetition_count(), 21);
+    /// assert_eq!(config.adaptive_proportion(), 589);
+    /// let monitor = HealthTestMonitor::new(config);
+    /// assert!(!monitor.status().startup_ready());
+    /// # Ok::<(), sp_800_90b::HealthTestError>(())
+    /// ```
+    pub fn monitor_config(&self) -> Result<HealthTestConfig, HealthTestError> {
+        let adaptive_proportion = u32::try_from(self.adaptive_proportion)
+            .map_err(|_| HealthTestError::CutoffOutOfRange)?;
+        let config = HealthTestConfig::new(
+            self.options.alphabet_size,
+            self.repetition_count,
+            adaptive_proportion,
+        )?;
+        if self.window_size != config.window_size() {
+            return Err(HealthTestError::InvalidWindowSize);
+        }
+        Ok(config)
     }
-    /// At least 1024 startup samples have been tested, with no latched failure.
-    /// The caller must withhold startup output and enforce the failure response.
-    pub fn startup_ready(&self) -> bool {
-        self.samples_seen >= 1024 && !self.failed()
-    }
 }
-/// Streaming RCT and non-overlapping APT windows. Chunk boundaries never reset
-/// test state. Failures latch; subsequent samples remain tested for diagnostics.
+
+/// Streaming health tests with MPFR cutoff calculation and retained diagnostics.
+///
+/// Available with the `assessment` feature (enabled by default). Monitoring
+/// delegates to [`HealthTestMonitor`], which is also available in `no_std` builds.
 #[derive(Clone, Debug)]
 pub struct HealthTests {
     cutoffs: HealthTestCutoffs,
-    status: HealthTestStatus,
-    previous: Option<u8>,
-    run: u32,
-    reference: u8,
-    matches: u32,
-    seen: [bool; 256],
-    distinct: u16,
+    monitor: HealthTestMonitor,
 }
 impl HealthTests {
     pub fn new(h: &Float, options: HealthTestOptions) -> Result<Self, HealthTestError> {
-        Ok(Self {
-            cutoffs: health_test_cutoffs(h, options)?,
-            status: HealthTestStatus {
-                samples_seen: 0,
-                completed_windows: 0,
-                samples_in_window: 0,
-                first_repetition_failure: None,
-                first_adaptive_failure: None,
-            },
-            previous: None,
-            run: 0,
-            reference: 0,
-            matches: 0,
-            seen: [false; 256],
-            distinct: 0,
-        })
+        let cutoffs = health_test_cutoffs(h, options)?;
+        let monitor = HealthTestMonitor::new(cutoffs.monitor_config()?);
+        Ok(Self { cutoffs, monitor })
     }
     pub fn cutoffs(&self) -> &HealthTestCutoffs {
         &self.cutoffs
     }
     pub fn status(&self) -> &HealthTestStatus {
-        &self.status
+        self.monitor.status()
     }
     /// Explicitly restart both tests and startup counting, retaining the cutoffs.
     pub fn reset(&mut self) {
-        self.status = HealthTestStatus {
-            samples_seen: 0,
-            completed_windows: 0,
-            samples_in_window: 0,
-            first_repetition_failure: None,
-            first_adaptive_failure: None,
-        };
-        self.previous = None;
-        self.run = 0;
-        self.matches = 0;
-        self.reference = 0;
-        self.seen.fill(false);
-        self.distinct = 0;
+        self.monitor.reset();
     }
     /// Invalid alphabet expansion or counter overflow leaves this sample unconsumed.
     pub fn observe(&mut self, symbol: u8) -> Result<(), HealthTestError> {
-        if self.status.samples_seen == u64::MAX {
-            return Err(HealthTestError::SampleCountOverflow);
-        }
-        if !self.seen[symbol as usize] {
-            if self.distinct == self.cutoffs.options.alphabet_size {
-                return Err(HealthTestError::AlphabetExceeded);
-            }
-            self.seen[symbol as usize] = true;
-            self.distinct += 1;
-        }
-        let index = self.status.samples_seen;
-        self.run = if self.previous == Some(symbol) {
-            self.run.saturating_add(1)
-        } else {
-            1
-        };
-        self.previous = Some(symbol);
-        if self.run >= self.cutoffs.repetition_count
-            && self.status.first_repetition_failure.is_none()
-        {
-            self.status.first_repetition_failure = Some(HealthTestFailure {
-                test: HealthTestKind::RepetitionCount,
-                sample_index: index,
-                count: self.run,
-                cutoff: self.cutoffs.repetition_count,
-            });
-        }
-        if self.status.samples_in_window == 0 {
-            self.reference = symbol;
-            self.matches = 1;
-        } else if symbol == self.reference {
-            self.matches += 1;
-        }
-        if self.matches as usize >= self.cutoffs.adaptive_proportion
-            && self.status.first_adaptive_failure.is_none()
-        {
-            self.status.first_adaptive_failure = Some(HealthTestFailure {
-                test: HealthTestKind::AdaptiveProportion,
-                sample_index: index,
-                count: self.matches,
-                cutoff: self.cutoffs.adaptive_proportion as u32,
-            });
-        }
-        self.status.samples_seen += 1;
-        self.status.samples_in_window += 1;
-        if self.status.samples_in_window == self.cutoffs.window_size {
-            self.status.completed_windows += 1;
-            self.status.samples_in_window = 0;
-        }
-        Ok(())
+        self.monitor.observe(symbol)
     }
     /// Stops on an input error, retaining the successfully processed prefix.
     pub fn observe_slice(&mut self, samples: &[u8]) -> Result<(), HealthTestError> {
-        for &s in samples {
-            self.observe(s)?;
-        }
-        Ok(())
+        self.monitor.observe_slice(samples)
     }
 }

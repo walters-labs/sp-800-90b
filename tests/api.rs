@@ -1,3 +1,5 @@
+#![cfg(feature = "assessment")]
+
 use sp_800_90b::*;
 use std::{error::Error, sync::Arc};
 

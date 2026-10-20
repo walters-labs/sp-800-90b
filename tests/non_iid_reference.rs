@@ -1,3 +1,5 @@
+#![cfg(feature = "assessment")]
+
 //! Full non-IID reports against the pinned external NIST self-test outputs.
 use sp_800_90b::*;
 use std::{fs, path::PathBuf};

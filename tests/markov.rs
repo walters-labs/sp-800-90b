@@ -1,3 +1,5 @@
+#![cfg(feature = "assessment")]
+
 use rug::Float;
 use sp_800_90b::{EstimateError, MarkovOptions, markov_estimate, markov_estimate_with_options};
 const DATA: [u8; 40] = [

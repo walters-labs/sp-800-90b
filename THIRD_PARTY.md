@@ -12,6 +12,12 @@ not every package is linked into every build. This is an inventory, not a
 replacement for the upstream license texts or a binary redistribution bundle.
 Regenerate/review it when updating the lockfile.
 
+The default `assessment` and `cli` features activate the dependency graph below.
+With default features disabled and neither feature enabled, the health-monitor
+library uses only `core` and has no external dependencies; GMP/MPFR are not built
+or linked. Enabling `assessment` restores the arithmetic dependencies, and `cli`
+also adds JSON and hashing dependencies.
+
 | Package | Version | Declared license |
 | --- | --- | --- |
 | [az](https://docs.rs/crate/az/1.3.0/source/) | 1.3.0 | `MIT/Apache-2.0` |

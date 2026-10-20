@@ -1,3 +1,5 @@
+#![cfg(feature = "assessment")]
+
 use sp_800_90b::chi_square_independence;
 use std::{fs, path::PathBuf, process::Command};
 #[test]

@@ -1,3 +1,5 @@
+#![cfg(feature = "assessment")]
+
 use rug::Float;
 use sp_800_90b::{
     ConfidenceConstant, EstimateError, LrsOptions, lrs_estimate, lrs_estimate_with_options,

@@ -7,11 +7,12 @@ tools implementing NIST SP 800-90B numerical assessments. Includes all ten non-I
 estimators, IID tests, restart testing, conditioning bounds, and streaming RCT/APT
 health tests. Results retain high-precision values and diagnostic evidence.
 
-**Requires Rust 1.85 or later and a native C build toolchain.** The assessment engine uses
-MPFR through `rug`; this is currently a `std` library, not an embedded/`no_std`
-package. It provides numerical evidence, not entropy-source certification.
+**Requires Rust 1.85 or later.** Full assessments use `std` and MPFR through `rug`
+and require a native C build toolchain. Streaming RCT/APT health monitoring also
+supports allocation-free `no_std` builds with no external dependencies.
+This crate provides numerical evidence, not entropy-source certification.
 
-[Install](#install) · [Library example](#use-the-library) · [CLI examples](#use-the-cli) · [Results and units](#interpret-results) · [Verification](#verification-and-limits)
+[Install](#install) · [Embedded health tests](#embedded-health-tests-no_std) · [Library example](#use-the-library) · [CLI examples](#use-the-cli) · [Results and units](#interpret-results) · [Verification](#verification-and-limits)
 
 ## Install
 
@@ -30,7 +31,7 @@ cargo install --path . --locked
 sp-800-90b --help
 ```
 
-The first build compiles GMP/MPFR and can take several minutes. On macOS, install
+The first default build compiles GMP/MPFR and can take several minutes. On macOS, install
 the Xcode Command Line Tools. On GNU/Linux, install a C compiler, `make`, `m4`,
 and `diffutils` (for example, `sudo apt-get install build-essential m4 diffutils`
 on Ubuntu). Use a checkout path without spaces, a native dependency limitation.
@@ -38,7 +39,48 @@ on Ubuntu). Use a checkout path without spaces, a native dependency limitation.
 
 The minimum supported Rust version (MSRV) is 1.85.0, tested with the checked-in
 `Cargo.lock`. Development checks cover Apple Silicon macOS, and reference CI
-targets Ubuntu 24.04 x86-64. Windows and other targets are unverified.
+targets Ubuntu 24.04 x86-64. The minimal health-monitor build is also compile-checked
+for `thumbv7em-none-eabi` on the MSRV; this is not a hardware execution test.
+Windows and other targets are unverified.
+
+## Embedded health tests (`no_std`)
+
+To use only the streaming health tests, disable default features:
+
+```sh
+cargo add sp-800-90b --git https://github.com/walters-labs/sp-800-90b --no-default-features
+```
+
+This configuration provides `HealthTestConfig`, `HealthTestMonitor`, and their
+status/error types using only Rust's `core`. It needs no allocator, floating-point
+operations, GMP/MPFR, or C toolchain.
+
+```rust
+use sp_800_90b::{HealthTestConfig, HealthTestMonitor};
+
+// Precomputed for binary symbols, H=1 bit/sample and alpha=2^-20.
+let config = HealthTestConfig::new(2, 21, 589).unwrap();
+let mut monitor = HealthTestMonitor::new(config);
+monitor.observe_slice(&[0, 1]).unwrap();
+assert!(!monitor.status().failed());
+```
+
+Calculate source-appropriate cutoffs on a host using `health_test_cutoffs`, then
+export them with `HealthTestCutoffs::monitor_config()`. The firmware constructor
+checks integer ranges; it cannot establish that supplied cutoffs match the
+physical source's entropy. Preserve state between chunks, withhold output until
+`startup_ready()`, and enforce the failure response in your application. See the
+[health-test guide](docs/library-guide.md#embedded-health-monitoring) for the
+host-to-firmware workflow.
+
+| Features | Available functionality |
+| --- | --- |
+| None (`default-features = false`) | Allocation-free `no_std` RCT/APT monitoring from precomputed cutoffs |
+| `assessment` (default) | Full assessment API, MPFR cutoff calculation, and the existing `HealthTests::new` convenience API; requires `std` |
+| `cli` (default) | Six CLI commands; enables `assessment` |
+
+For the full library without CLI dependencies, disable defaults and enable
+`assessment`.
 
 ## Choose a workflow
 
@@ -50,7 +92,7 @@ targets Ubuntu 24.04 x86-64. Windows and other targets are unverified.
 | Calculate a conditioning output bound | `conditioning_entropy` / `VettedConditioner::assess` | `conditioning` |
 | Combine sequential data, restart data, submitter bound and optional conditioning | `assess_validation` | `validate` |
 | Transpose a restart matrix | `restart_column_sequence` | `transpose` |
-| Monitor incoming symbols with RCT/APT | `HealthTests` | Library only |
+| Monitor incoming symbols with RCT/APT | `HealthTestMonitor` (`no_std`) or `HealthTests` | Library only |
 | Reduce ranked source symbols wider than a byte | `SymbolReduction` | Library only |
 
 Start with the combined assessment APIs unless you need an individual estimator.

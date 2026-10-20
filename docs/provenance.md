@@ -43,7 +43,7 @@ it does not imply that whole files were copied verbatim.
 | `non_iid.rs`, `iid.rs` | `non_iid_main.cpp`, `iid_main.cpp` | Alphabet mapping, bit expansion and assessment selection; checked Rust inputs and structured reports rather than C++ CLI behavior |
 | `conditioning.rs` | `conditioning_main.cpp` and publication §3.1.5 | Output-entropy formulas; directed MPFR rounding, zero-entropy support, explicit caps, truncation and additional-source accounting |
 
-The publication also directly informs these algorithms. `health.rs`,
+The publication also directly informs these algorithms. `health.rs`, `health_core.rs`,
 `symbol_reduction.rs`, `vetted_conditioning.rs`, and the strict coordinator in
 `validation.rs` implement publication concepts and project-specific APIs beyond
 the reference tool's individual command interfaces. The CLI, report helpers and

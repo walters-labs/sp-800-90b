@@ -1,3 +1,5 @@
+#![cfg(feature = "assessment")]
+
 use rug::Float;
 use sp_800_90b::{
     ChiSquareError, ChiSquareGrouping, ChiSquareOptions, chi_square_goodness_of_fit as test,

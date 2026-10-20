@@ -1,3 +1,5 @@
+#![cfg(feature = "assessment")]
+
 use rug::Float;
 use sp_800_90b::*;
 fn f(x: &str) -> Float {
@@ -27,6 +29,11 @@ fn publication_table_two_and_rct_example() {
         .unwrap();
         assert_eq!(r.adaptive_proportion, c, "H={h}, k={alphabet}");
         assert!(r.adaptive_tail_probability <= r.alpha);
+        let config = r.monitor_config().unwrap();
+        assert_eq!(config.alphabet_size(), alphabet);
+        assert_eq!(config.repetition_count(), r.repetition_count);
+        assert_eq!(config.adaptive_proportion() as usize, c);
+        assert_eq!(config.window_size(), r.window_size);
     }
     assert_eq!(
         health_test_cutoffs(
@@ -40,6 +47,44 @@ fn publication_table_two_and_rct_example() {
         .repetition_count,
         11
     );
+}
+
+#[test]
+fn exporting_monitor_config_validates_public_report_fields() {
+    let cutoffs = health_test_cutoffs(&f("1"), HealthTestOptions::default()).unwrap();
+    let mut invalid = cutoffs.clone();
+    invalid.window_size = 512;
+    assert_eq!(
+        invalid.monitor_config(),
+        Err(HealthTestError::InvalidWindowSize)
+    );
+    invalid = cutoffs.clone();
+    invalid.options.alphabet_size = 257;
+    assert_eq!(
+        invalid.monitor_config(),
+        Err(HealthTestError::InvalidAlphabet)
+    );
+    invalid = cutoffs.clone();
+    invalid.repetition_count = 1;
+    assert_eq!(
+        invalid.monitor_config(),
+        Err(HealthTestError::CutoffOutOfRange)
+    );
+    invalid = cutoffs;
+    invalid.adaptive_proportion = usize::MAX;
+    assert_eq!(
+        invalid.monitor_config(),
+        Err(HealthTestError::CutoffOutOfRange)
+    );
+}
+
+#[test]
+fn tiny_entropy_exports_apt_cutoff_above_window() {
+    let cutoffs = health_test_cutoffs(&f("0.01"), HealthTestOptions::default()).unwrap();
+    assert_eq!(cutoffs.adaptive_proportion, 1025);
+    let mut monitor = HealthTestMonitor::new(cutoffs.monitor_config().unwrap());
+    monitor.observe_slice(&[0; 1024]).unwrap();
+    assert!(!monitor.status().failed());
 }
 #[test]
 fn repetition_boundary_latch_and_reset() {

@@ -1,3 +1,5 @@
+#![cfg(feature = "cli")]
+
 use rug::Float;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
