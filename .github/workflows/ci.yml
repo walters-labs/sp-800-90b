@@ -1,0 +1,135 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  assessment:
+    name: Assessments / Rust ${{ matrix.rust }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        rust: ["1.85.0", "stable"]
+    env:
+      RUST_TOOLCHAIN: ${{ matrix.rust }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential m4 diffutils
+      - name: Install Rust
+        id: toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustc "+$RUST_TOOLCHAIN" --version
+          printf 'version=%s\n' "$(rustc "+$RUST_TOOLCHAIN" --version | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
+      - name: Install lint tools
+        if: matrix.rust == 'stable'
+        run: rustup component add --toolchain "$RUST_TOOLCHAIN" rustfmt clippy
+      - name: Cache Cargo and GMP/MPFR builds
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cache/gmp-mpfr-sys
+            target
+          key: cargo-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.version }}-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.version }}-
+      - name: Test default features
+        run: |
+          cargo "+$RUST_TOOLCHAIN" test --locked --all-targets
+          cargo "+$RUST_TOOLCHAIN" test --locked --doc
+      - name: Check assessment library without CLI features
+        run: cargo "+$RUST_TOOLCHAIN" check --locked --no-default-features --features assessment --all-targets
+      - name: Build documentation
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo "+$RUST_TOOLCHAIN" doc --locked --all-features --no-deps
+      - name: Check formatting
+        if: matrix.rust == 'stable'
+        run: cargo "+$RUST_TOOLCHAIN" fmt --check
+      - name: Clippy
+        if: matrix.rust == 'stable'
+        run: cargo "+$RUST_TOOLCHAIN" clippy --locked --all-targets --all-features -- -D warnings
+
+  minimal:
+    name: no_std health monitor / Rust ${{ matrix.rust }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        rust: ["1.85.0", "stable"]
+    env:
+      RUST_TOOLCHAIN: ${{ matrix.rust }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Rust and bare-metal target
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --target thumbv7em-none-eabi
+          rustc "+$RUST_TOOLCHAIN" --version
+      - name: Install Clippy
+        if: matrix.rust == 'stable'
+        run: rustup component add --toolchain "$RUST_TOOLCHAIN" clippy
+      - name: Require a dependency-free core
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+
+          metadata = json.loads(subprocess.check_output(
+              ["cargo", "+" + os.environ["RUST_TOOLCHAIN"], "metadata",
+               "--locked", "--format-version", "1", "--no-default-features"],
+              text=True,
+          ))
+          root = next(node for node in metadata["resolve"]["nodes"]
+                      if node["id"] == metadata["resolve"]["root"])
+          dependencies = sorted(
+              dependency["name"] for dependency in root["deps"]
+              if any(kind["kind"] in (None, "build")
+                     for kind in dependency["dep_kinds"])
+          )
+          if dependencies:
+              raise SystemExit("Minimal core enables dependencies: " + ", ".join(dependencies))
+          print("Minimal core has no normal or build dependencies on any target.")
+          PY
+      - name: Test minimal features
+        run: |
+          cargo "+$RUST_TOOLCHAIN" test --locked --no-default-features --all-targets
+          cargo "+$RUST_TOOLCHAIN" test --locked --no-default-features --doc
+      - name: Check bare-metal library
+        run: cargo "+$RUST_TOOLCHAIN" check --locked --no-default-features --lib --target thumbv7em-none-eabi
+      - name: Build minimal documentation
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo "+$RUST_TOOLCHAIN" doc --locked --no-default-features --no-deps
+      - name: Clippy
+        if: matrix.rust == 'stable'
+        run: cargo "+$RUST_TOOLCHAIN" clippy --locked --no-default-features --all-targets -- -D warnings

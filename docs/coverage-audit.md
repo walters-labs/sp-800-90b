@@ -95,16 +95,18 @@ These require preservation in documentation and regression tests rather than aut
 
 ## Evidence and its limits
 
-Latest full regular-suite verification on 2026-10-20, with Rust 1.85.0 on Apple
-Silicon macOS after separating `no_std` health monitoring:
+Latest full regular-suite verification on 2026-10-20, with Rust 1.85.0 and
+stable (Rust 1.97.1) on Apple Silicon macOS after separating `no_std` health
+monitoring and adding regular CI:
 
-- `cargo +1.85.0 test --locked --offline --all-targets`: **178 passed, 0 failed, 36 opt-in tests ignored**, including both named potential-errata regressions.
-- `cargo +1.85.0 test --locked --offline --doc`: **16 passed**.
-- With `--no-default-features`: **10 tests and 1 doctest passed**; all test targets compile, with assessment/CLI tests disabled.
-- `cargo +1.85.0 check --locked --offline --no-default-features --features assessment --all-targets`: passed, covering the full library without the CLI.
-- Minimal library compilation for `thumbv7em-none-eabi` on Rust 1.85.0: passed. This is a compile check, not hardware execution.
-- The minimal normal dependency tree contains only `sp-800-90b`.
-- Clippy with warnings denied for full/minimal features and formatting on Rust 1.97.1, and whitespace checks: passed. Full/minimal rustdoc builds pass with warnings denied on Rust 1.85.0.
+- `cargo test --locked --offline --all-targets` on each compiler: **178 passed, 0 failed, 36 opt-in tests ignored**, including both named potential-errata regressions.
+- `cargo test --locked --offline --doc` on each compiler: **16 passed**.
+- With `--no-default-features` on each compiler: **10 tests and 1 doctest passed**; all test targets compile, with assessment/CLI tests disabled.
+- `cargo check --locked --offline --no-default-features --features assessment --all-targets` on each compiler: passed, covering the full library without the CLI.
+- Minimal library compilation for `thumbv7em-none-eabi` on each compiler: passed. This is a compile check, not hardware execution.
+- The minimal dependency guard passed on both compilers. It also rejected simulated normal/build dependencies on another target while permitting dev-only dependencies.
+- Clippy with warnings denied for full/minimal features and formatting on Rust 1.97.1, and whitespace checks: passed. Full/minimal rustdoc builds pass with warnings denied on both compilers.
+- Actionlint, including shell checks, passed for the CI workflows. This is local workflow validation, not a hosted Linux run.
 - Before the API usability additions, the pinned reference harness separately ran **28 reference tests across seven targets; all passed**. Its qualified status was `passed_with_binary64_baseline_differences`: nine clean baseline datasets and the two documented M1 exceptions.
 - The new full-size restart and validation CLI tests were run separately and passed, including IID success, fallback, conditioning, and rejection. The regular-suite ignored count is not a claim that all opt-in tests were skipped throughout the session or that all 36 were rerun together.
 
@@ -115,8 +117,12 @@ choices. Six `if let` chains were rewritten as nested conditions and one integer
 `is_multiple_of(2)` call became `% 2 == 0`; the conditions, calculations and
 dependency versions are unchanged. All targets, including the CLI, examples and
 opt-in test binaries, compile on the MSRV; the ignored tests were not executed
-in this check. The reference CI workflow still selects Rust 1.97.1. Enforcing the
-MSRV and feature configurations in regular-suite CI remains a release task.
+in this check. The reference CI workflow still selects Rust 1.97.1. The separate
+[regular CI workflow](../.github/workflows/ci.yml) now checks default, assessment-only
+and minimal features on Rust 1.85.0 and stable, including minimal dependency
+isolation and bare-metal compilation. Stable jobs also enforce formatting and
+Clippy; both compilers build full/minimal documentation with warnings denied.
+This new workflow still needs its first hosted run after these changes are pushed.
 
 The default features remain `assessment` and `cli`, preserving the existing API
 and commands. `HealthTests` delegates monitoring to the same allocation-free
@@ -160,7 +166,7 @@ Individual reference tests can be run against caller-supplied environment paths.
 | Implemented | **G5 Conditioning integration** | Typed Table 1 dimensions, vetted truncation, and strict assessment integration are implemented. Explicit additional-source accounting is implemented. |
 | Implemented (schema version 1) | **G6 CLI and reports** | All six commands expose documented flags and applicable status/exit, decimal-string entropy, hash and seed fields. Non-IID/IID/restart/transpose support selection; validate reads full files and conditioning accepts numerical inputs. Full intermediate estimator diagnostics remain API-only; NIST flag aliases are intentionally absent. |
 | P2 | **G7 Numerical and robustness coverage** | Named regressions cover both potential errata as described above. Add independent golden vectors, rounding-bound tests for conditioning, tail minimality/boundary checks for health cutoffs, and property/fuzz tests for preprocessing and state machines. Benchmark time and peak memory on representative million-sample inputs. |
-| In progress | **G8 Release preparation** | Rust 1.85.0 is the minimum supported compiler; platform limits, package metadata, explicit packaged files, and a locked dependency-license inventory are documented. Package verification and publication dry run passed before the MSRV/feature changes. The API, NIST attribution, README, potential-errata and MSRV reviews are complete; regular-suite/MSRV/feature CI, final-revision verification, registry authorization and actual publication remain. The inventory is not a linked-binary redistribution bundle. |
+| In progress | **G8 Release preparation** | Rust 1.85.0 is the minimum supported compiler; platform limits, package metadata, explicit packaged files, and a locked dependency-license inventory are documented. Package verification and publication dry run passed before the MSRV/feature changes. The API, NIST attribution, README, potential-errata and MSRV reviews are complete; regular-suite/MSRV/feature CI is configured. Hosted CI and package verification on the final revision, registry authorization and actual publication remain. The inventory is not a linked-binary redistribution bundle. |
 | Partial; further scope decision | **G9 Operational source integration** | Allocation-free `no_std` RCT/APT monitoring is available. GetNoise/GetEntropy interfaces, output gating, on-demand operation and failure recovery remain application responsibilities; adding those device operations would require a separate scope decision. |
 
 G1 is implemented by `assess_validation` for byte-valued raw samples and unpacked conditioned output bits. It enforces dataset sizes, consistent track selection, H_submitter, complete evidence, restart acceptance, and conditioning block units. G2 now has a pinned build/comparison harness and Linux CI configuration (the user reports a successful hosted run in 15 minutes 9 seconds); G3 now includes successful IID and non-IID restart comparisons. The six-command CLI now exposes these numerical workflows with documented version 1 reports. Release preparation and CI on the final revision remain the next steps.

@@ -1,5 +1,6 @@
 # sp-800-90b
 
+[![CI](https://github.com/walters-labs/sp-800-90b/actions/workflows/ci.yml/badge.svg)](https://github.com/walters-labs/sp-800-90b/actions/workflows/ci.yml)
 [![NIST reference comparison](https://github.com/walters-labs/sp-800-90b/actions/workflows/reference-comparison.yml/badge.svg)](https://github.com/walters-labs/sp-800-90b/actions/workflows/reference-comparison.yml)
 
 Estimate the min-entropy of a noise source with a Rust library and six command-line
@@ -38,10 +39,12 @@ on Ubuntu). Use a checkout path without spaces, a native dependency limitation.
 **The NIST repository, jsoncpp, and OpenSSL are not required to use this crate.**
 
 The minimum supported Rust version (MSRV) is 1.85.0, tested with the checked-in
-`Cargo.lock`. Development checks cover Apple Silicon macOS, and reference CI
-targets Ubuntu 24.04 x86-64. The minimal health-monitor build is also compile-checked
-for `thumbv7em-none-eabi` on the MSRV; this is not a hardware execution test.
-Windows and other targets are unverified.
+`Cargo.lock`. Development checks cover Apple Silicon macOS. CI targets Ubuntu
+24.04 x86-64 with Rust 1.85.0 and stable, including default features, the
+assessment-only library, and minimal health monitoring. Minimal builds also
+compile for `thumbv7em-none-eabi`; this is not a hardware execution test.
+Windows and other targets are unverified. See the workflow badges for
+revision-specific results.
 
 ## Embedded health tests (`no_std`)
 
@@ -225,6 +228,11 @@ specified failure patterns; it does not replace entropy assessment.
 
 ## Verification and limits
 
+Regular CI runs tests and doctests on the MSRV and stable, checks the minimal
+core has no normal or build dependencies, and compiles it for a bare-metal
+target. It also checks formatting, Clippy, and documentation warnings. The
+NIST reference comparison runs in a separate workflow.
+
 The reference harness builds pinned NIST revision
 `87c104d0ed4cbc96103e7b8b38d6f2c7e0a6b289`, generates fresh results, and compares
 Rust against that build across seven suites. It separately compares fresh NIST
@@ -240,7 +248,7 @@ not permission for arbitrary Rust mismatches. Linux CI requires extended
 precision and enables no such baseline allowance.
 
 See [reference testing](docs/reference-testing.md) to reproduce the checks,
-[CI runs](https://github.com/walters-labs/sp-800-90b/actions/workflows/reference-comparison.yml)
+[CI runs](https://github.com/walters-labs/sp-800-90b/actions)
 for revision-specific results, and the [coverage audit](docs/coverage-audit.md)
 for dated evidence, deliberate differences and remaining coverage gaps.
 Full end-to-end workflow reference parity, broad fuzzing and performance

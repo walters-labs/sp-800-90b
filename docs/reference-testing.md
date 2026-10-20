@@ -15,6 +15,44 @@ Expensive and external-reference tests are opt-in. The pinned harness below
 runs the reference targets; it does not run every ignored test or replace the
 regular checks above. A normal crate build needs no NIST checkout or C++ tools.
 
+## Continuous integration
+
+The [regular CI workflow](../.github/workflows/ci.yml) runs four jobs on Ubuntu
+24.04 x86-64: assessments and minimal health monitoring, each on Rust 1.85.0
+(the MSRV) and stable. It uses the checked-in lockfile.
+
+| Configuration | Checks |
+| --- | --- |
+| Default features | All-target tests, doctests, documentation with warnings denied |
+| `assessment` without defaults | All-target compilation, including library examples and assessment test binaries |
+| No default features | All-target tests, doctests, documentation with warnings denied, no enabled normal/build dependencies on any target, and library compilation for `thumbv7em-none-eabi` |
+| Stable only | Formatting and Clippy with warnings denied for full and minimal features |
+
+The assessment jobs cache Cargo and GMP/MPFR builds. Minimal jobs require no
+native-library installation. Their host tests exercise the monitor's behavior;
+the bare-metal check verifies compilation without `std`, not execution on a
+device. Expensive ignored tests remain opt-in or covered by the separate
+reference workflow.
+
+To reproduce the feature checks locally, use `cargo +1.85.0` or `cargo +stable`:
+
+```sh
+cargo +1.85.0 check --locked --no-default-features --features assessment --all-targets
+cargo +1.85.0 test --locked --no-default-features --all-targets
+cargo +1.85.0 test --locked --no-default-features --doc
+cargo +1.85.0 tree --locked --no-default-features --edges normal,build --target all
+rustup target add --toolchain 1.85.0 thumbv7em-none-eabi
+cargo +1.85.0 check --locked --no-default-features --lib --target thumbv7em-none-eabi
+RUSTDOCFLAGS="-D warnings" cargo +1.85.0 doc --locked --all-features --no-deps
+RUSTDOCFLAGS="-D warnings" cargo +1.85.0 doc --locked --no-default-features --no-deps
+```
+
+Both workflows run on pull requests, pushes to main/master, and manual dispatch.
+See [regular CI runs](https://github.com/walters-labs/sp-800-90b/actions/workflows/ci.yml)
+and [reference comparison runs](https://github.com/walters-labs/sp-800-90b/actions/workflows/reference-comparison.yml)
+for results on a specific revision. A configured workflow is not evidence that
+an unpushed revision has passed hosted checks.
+
 ## Run the pinned comparison harness
 
 Run the harness using the existing NIST checkout:
