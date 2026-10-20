@@ -157,3 +157,39 @@ fn modes_widths_and_truncation_match_nist_executable() {
     }
     fs::remove_file(path).unwrap();
 }
+
+#[test]
+#[ignore = "requires NIST_REFERENCE_DIR and completed NIST self-tests"]
+fn reduced_wide_samples_match_nist_four_bit_assessment() {
+    let root = PathBuf::from(std::env::var_os("NIST_REFERENCE_DIR").unwrap());
+    let expected = fs::read(root.join("bin/truerand_4bit.bin")).unwrap();
+    // Independent fixture construction: embed each reference nibble into
+    // scattered positions of a 32-bit sample, with nonzero discarded bits.
+    let wide: Vec<u128> = expected
+        .iter()
+        .map(|&v| {
+            0x5555_5555u128
+                | (u128::from((v >> 3) & 1) << 31)
+                | (u128::from((v >> 2) & 1) << 17)
+                | (u128::from((v >> 1) & 1) << 9)
+                | (u128::from(v & 1) << 1)
+        })
+        .collect();
+    let mut ranking = vec![31, 17, 9, 1];
+    ranking.extend((0..32).filter(|p| ![31, 17, 9, 1].contains(p)));
+    let mapping = SymbolReduction::new(32, 4, &ranking).unwrap();
+    let reduced = mapping.reduce(&wide).unwrap();
+    assert_eq!(reduced, expected);
+    let report = assess_non_iid(
+        &reduced,
+        NonIidOptions {
+            bits_per_symbol: Some(mapping.output_bits()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let text = fs::read_to_string(root.join("cpp/selftest/truerand_4bit.res")).unwrap();
+    compare(&report, &text);
+    assert_eq!(report.sample_count, wide.len());
+    assert!(report.min_entropy <= mapping.entropy_ceiling());
+}

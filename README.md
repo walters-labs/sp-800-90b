@@ -1015,3 +1015,47 @@ thread, making both sanity and permutation testing reproducible. This case uses
 one reference simulation rather than separately rerunning the cutoff adapter.
 Use the same environment variables as above and select
 `positive_iid_restart_matches_reference` to run it alone.
+
+
+## Reducing wider samples (§6.4)
+
+`SymbolReduction` selects ranked bits from unsigned samples of 1–128 bits,
+producing one 1–8-bit symbol per original sample. Supply a complete ranking
+based on the noise-source model, most entropy-contributing position first.
+Positions are zero-based from the least significant bit; the first ranked bit
+becomes the most significant output bit. Rankings are not estimated from data.
+
+```rust
+use sp_800_90b::{SymbolReduction, NonIidOptions, assess_non_iid};
+// Keep the low four bits of a 32-bit clock sample in their original order.
+let mut ranking = vec![3, 2, 1, 0];
+ranking.extend(4..32);
+let mapping = SymbolReduction::new(32, 4, &ranking)?;
+let samples: Vec<u128> = vec![0x1234_abcd, 0x1234_abce, 0x1234_abcf];
+let reduced = mapping.reduce(&samples)?;
+assert_eq!(reduced, [13, 14, 15]);
+let report = assess_non_iid(&reduced, NonIidOptions {
+    bits_per_symbol: Some(mapping.output_bits()),
+    ..Default::default()
+})?;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+Use the same mapping for sequential and restart datasets. Pass the reduced width
+explicitly to IID, non-IID, restart, or validation options. Entropy is measured
+per original sample because mapping preserves sample boundaries; its ceiling is
+`mapping.entropy_ceiling()` bits. Never multiply it by the original/reduced width
+ratio. Submitter and restart entropy bounds must respect this reduced ceiling.
+The preprocessing operation alone neither estimates entropy nor establishes IID.
+
+Decode file bytes using the source's documented byte order before conversion to
+`u128`. Values exceeding the declared input width, duplicate/out-of-range ranks,
+and incomplete rankings are rejected. Wider than 128-bit representations and
+alternative source-specific reduction methods are not supported by this API.
+
+NIST's C++ tools accept byte symbols and do not implement this ranked wide-input
+mapping (`ea_transpose` transposes restart data). Mapping tests therefore use
+specification examples and independent expected bit selections. An opt-in test
+in `non_iid_reference` embeds NIST's four-bit fixture in scattered 32-bit
+positions, reduces it, and compares the complete assessment with NIST's recorded
+results. It runs automatically in the reference harness.

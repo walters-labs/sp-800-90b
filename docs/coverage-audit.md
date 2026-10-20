@@ -2,7 +2,7 @@
 
 Audit date: 2026-10-19. Scope: the current working tree, including uncommitted files, based on commit `3e1cd16de077bde2f804dc1b5a75cabea7e39b5b`. Reference implementation: local NIST checkout at `87c104d0ed4cbc96103e7b8b38d6f2c7e0a6b289`.
 
-The core numerical engine is broadly implemented. The crate is **not yet a complete implementation of the entire publication or a command-compatible replacement for NIST's package**. The strict numerical validation workflow now applies the submitter bound and coordinates track selection, restart testing, and conditioning. Outstanding computational pieces include wider-symbol preprocessing and the remaining conditioning metadata/truncation support. Release evidence also needs expansion, especially complete validation-workflow comparisons.
+The core numerical engine is broadly implemented. The crate is **not yet a complete implementation of the entire publication or a command-compatible replacement for NIST's package**. The strict numerical validation workflow now applies the submitter bound and coordinates track selection, restart testing, and conditioning. Outstanding computational pieces include the remaining conditioning metadata/truncation support. Ranked symbol reduction is available for unsigned inputs up to 128 bits. Release evidence also needs expansion, especially complete validation-workflow comparisons.
 
 This is a coverage and integration audit, not a proof of algorithm correctness or a certification. “Implemented” below means an API and targeted tests exist; the evidence column defines the strength of that claim. No estimator or decision behavior was changed during this audit.
 
@@ -39,7 +39,7 @@ The potential errata correct the binary goodness-of-fit critical value to 27.877
 | §3.1.6 additional sources | Caller responsibility | No composition API | No enforcement that credited entropy/input accounting comes from the primary source |
 | §4.4 RCT/APT | Implemented | `health.rs`; all ten Table 2 cutoffs, boundaries, chunking, latching, reset | Only byte-valued alphabets; optional opposite-symbol binary APT extension absent |
 | §4.2–4.3 startup and on-demand operations | Partial | Startup sample counter, readiness, explicit reset | Device output gating, failure recovery, on-demand scheduling, and source-specific tests are not implemented |
-| §6.4 symbol-space reduction | Missing | All assessment inputs are `&[u8]` | No wider-symbol extraction/ranking adapter; rank-remapping byte labels is not this procedure |
+| §6.4 symbol-space reduction | Implemented (up to 128 bits) | `SymbolReduction` validates a complete caller-supplied ranking and selects 1–8 bits per sample | Source-model ranking and file byte order remain caller responsibilities; arbitrary-width and alternative reductions are not supported |
 | Appendix E internal-width accounting | Partial | Conditioning clamps nw to n_in | Caller must establish component width |
 | Appendix F CBC-MAC conditioner | Outside numerical-tool scope; absent | No cryptographic conditioning implementation | Needed only if scope expands to operating a conditioner, not merely assessing entropy |
 | Appendices A–D and G | Explanatory/model material | Algorithms use the corresponding estimator concepts | No separate “appendix implementation” or proof claim |
@@ -105,7 +105,7 @@ Reference tests depend on environment paths and some existing self-test outputs.
 | Done | **G1 Validation workflow and submitter bound** | `assess_validation` accepts H_submitter, checks dataset eligibility, coordinates one IID/non-IID track, restart and conditioning, and withholds final entropy on incomplete or rejected evidence. Exploratory APIs remain available; integration tests cover bounds, units and decisions. |
 | Implemented; CI run pending | **G2 Reproducible reference harness and CI** | Pinned isolated builds, automatic adapters, compiler/precision metadata, fresh results and full reference CI are configured. Hosted Linux execution and named regressions for both potential errata remain to be verified/completed. |
 | Implemented | **G3 Restart validation evidence** | Positive-H_I binary/nonbinary non-IID success, sanity-pass/entropy-rejection, and successful IID restart comparisons with deterministic permutation control are implemented. |
-| P2 | **G4 Wider symbol support** | Add a §6.4 preprocessing API for caller-specified ranked bit positions, preserving sample boundaries and entropy accounting. Test >8-bit samples, invalid rankings, bit order, and effective entropy ceilings. Do not infer a physical ranking from frequency alone. |
+| Done (up to 128 bits) | **G4 Wider symbol support** | `SymbolReduction` preserves sample boundaries and records input/output widths, ranking, and entropy ceiling. Tests cover bit order, width boundaries, invalid rankings and samples, exhaustive 16-bit projection, and downstream NIST reference agreement. |
 | P2 | **G5 Conditioning integration** | Add typed component metadata or validated width presets, a completed-assessment-to-h' bridge, explicit input-block entropy accounting, and the vetted output-truncation adjustment. Test that per-bit and per-sample quantities cannot be confused. |
 | P2 | **G6 CLI and stable reports** | Implement supported subcommands, file subsets, explicit pass/reject/incomplete statuses and exit codes, precision-preserving JSON, dataset hashes, seed/provenance records, and transpose output. Publish which flags match NIST. |
 | P2 | **G7 Numerical and robustness coverage** | Add independent golden vectors, rounding-bound tests for conditioning, tail minimality/boundary checks for health cutoffs, and property/fuzz tests for preprocessing and state machines. Benchmark time and peak memory on representative million-sample inputs. |
@@ -199,3 +199,19 @@ column entropy estimates were 3.97119433672960964 bits/sample in Rust, matching
 NIST's printed 3.971194; both implementations awarded 2 bits/sample. Maximum
 frequency was 96 and the exact seeded sanity cutoff was 316. The existing
 cutoff-only adapter regression also passed at five entropy levels.
+
+
+## Ranked symbol reduction (§6.4)
+
+`SymbolReduction` supports 1–128-bit unsigned inputs and 1–8-bit outputs,
+with a validated full ranking supplied by the caller. Rank 1 becomes the most
+significant output bit; numeric positions are indexed from the input's least
+significant bit. One output symbol represents one original sample, so the
+reduced width is the entropy ceiling per original sample, without rescaling.
+
+Verification on 2026-10-20 passed the mapping tests, regular all-target suite,
+nine documentation examples, and Clippy. The opt-in million-sample downstream
+reference comparison passed in 20.11 seconds: scattered 32-bit inputs reduced
+exactly to NIST's four-bit fixture, and all non-IID estimates and the combined
+result matched its recorded self-test output. This checks assessment integration;
+NIST does not expose a ranked wide-symbol reducer for direct conversion parity.
