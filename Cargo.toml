@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "Incremental implementation of NIST SP 800-90B entropy assessment"
 license = "MIT"
+repository = "https://github.com/walters-labs/sp-800-90b"
 
 [dependencies]
 bzip2 = "0.6"
