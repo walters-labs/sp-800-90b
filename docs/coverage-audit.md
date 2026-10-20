@@ -114,7 +114,7 @@ Individual reference tests can be run against caller-supplied environment paths.
 | Implemented | **G5 Conditioning integration** | Typed Table 1 dimensions, vetted truncation, and strict assessment integration are implemented. Explicit additional-source accounting is implemented. |
 | Implemented (schema version 1) | **G6 CLI and reports** | All six commands expose documented flags and applicable status/exit, decimal-string entropy, hash and seed fields. Non-IID/IID/restart/transpose support selection; validate reads full files and conditioning accepts numerical inputs. Full intermediate estimator diagnostics remain API-only; NIST flag aliases are intentionally absent. |
 | P2 | **G7 Numerical and robustness coverage** | Add independent golden vectors, rounding-bound tests for conditioning, tail minimality/boundary checks for health cutoffs, and property/fuzz tests for preprocessing and state machines. Benchmark time and peak memory on representative million-sample inputs; add named regressions for both potential errata. |
-| In progress | **G8 Release preparation** | Rust 1.97.1 is the declared tested baseline; platform limits, package metadata, explicit packaged files, and a locked dependency-license inventory are documented. Package verification and publication dry run passed. Final API review, committing packaging changes, final-revision CI, registry authorization and actual publication remain. The inventory is not a linked-binary redistribution bundle. |
+| In progress | **G8 Release preparation** | Rust 1.97.1 is the declared tested baseline; platform limits, package metadata, explicit packaged files, and a locked dependency-license inventory are documented. Package verification and publication dry run passed. The API review and NIST attribution review are complete; the subsequent README/MSRV/errata/CI review, final-revision verification, registry authorization and actual publication remain. The inventory is not a linked-binary redistribution bundle. |
 | Scope decision | **G9 Operational source integration** | If this becomes a device-facing source library, design GetNoise/GetEntropy/HealthTest interfaces, startup withholding, on-demand operation and recovery. Otherwise document those responsibilities as outside the assessment crate. |
 
 G1 is implemented by `assess_validation` for byte-valued raw samples and unpacked conditioned output bits. It enforces dataset sizes, consistent track selection, H_submitter, complete evidence, restart acceptance, and conditioning block units. G2 now has a pinned build/comparison harness and Linux CI configuration (the user reports a successful hosted run in 15 minutes 9 seconds); G3 now includes successful IID and non-IID restart comparisons. The six-command CLI now exposes these numerical workflows with documented version 1 reports. Release preparation and CI on the final revision remain the next steps.
@@ -441,3 +441,41 @@ tests exercise partial/constant results, incomplete/rejected IID evidence,
 estimator lookup, the Float re-export, and typed error chains; existing
 validation tests also check eligible entropy on complete and rejected workflows.
 The external reference harness was not rerun for these additive API changes.
+
+## NIST provenance and attribution review — 2026-10-20
+
+The source review identified reference-specific adaptations in prediction,
+permutation, restart simulation and estimator/test conventions. The project now
+explicitly acknowledges NIST and conservatively attributes the reference-informed
+implementation, without claiming clean-room development. `docs/provenance.md`
+records the pinned source map, modification dates from Git history, changes,
+and the distinction between Rust implementations and external C++ adapters.
+
+`LICENSE-NIST` preserves the complete pinned upstream README notice unchanged;
+`LICENSE-MIT` preserves the project's original MIT text. `LICENSE` contains both
+and a modification notice. Cargo now uses `license-file = "LICENSE"`, rather
+than an MIT-only SPDX declaration or an approximate NIST identifier. Source
+headers, README and the dependency inventory point to these notices. Blackman/
+Vigna generator attribution and the external Cephes-header distinction are
+recorded separately. This is a provenance record, not exhaustive authorship
+reconstruction or a blanket legal-compliance certification.
+
+Exact-text checks verified both original notices; all license/provenance files
+are included in the 82-file package. Offline locked package verification built
+successfully. Formatting and whitespace checks passed. Changes are licensing,
+metadata, documentation and source comments only; algorithms were not changed.
+
+## User documentation restructuring — 2026-10-20
+
+The README is now a getting-started guide: build requirements, installation,
+workflow selection, a compilable library example, practical CLI commands, input
+formats, result units/statuses, verification limits and licensing. Detailed
+algorithm/API notes moved to `docs/library-guide.md`, complete command/report
+contracts to `docs/cli.md`, and harness instructions to
+`docs/reference-testing.md`. Session-specific verification history stays in
+this audit; the README links to revision-specific CI rather than narrating runs.
+
+All local links and section anchors in the four user guides were checked. The
+README Rust example compiled as a separate consumer with only a direct
+`sp-800-90b` dependency. All three new guides are included in the Cargo package.
+No numerical implementation or CLI behavior changed in this documentation step.

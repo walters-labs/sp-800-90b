@@ -1,3 +1,5 @@
+// Project test adapter for NIST SP800-90B_EntropyAssessment (2026-10-20).
+// External NIST code retains its notices; see LICENSE-NIST and docs/provenance.md.
 // Independent adapter calling the unmodified NIST IID LRS hypothesis test.
 #include "shared/lrs_test.h"
 #include <fstream>

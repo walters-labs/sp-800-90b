@@ -1,3 +1,6 @@
+// Reference-informed adaptation of NIST SP800-90B_EntropyAssessment.
+// Modified in Rust, 2026-10-19–2026-10-20; see docs/provenance.md for sources
+// and changes. Preserve the upstream notice in LICENSE-NIST (also in LICENSE).
 //! Restart testing (§3.1.4): fixed 1000-by-1000 data, simulated sanity cutoff,
 //! literal row/column estimates, and H_I/2 validation.
 use crate::*;

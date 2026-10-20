@@ -1,3 +1,5 @@
+// Project test adapter for NIST SP800-90B_EntropyAssessment (2026-10-20).
+// External NIST code retains its notices; see LICENSE-NIST and docs/provenance.md.
 // Thin test adapter: uses the external NIST header without copying its implementation.
 // Compile with -I<reference>/cpp and the reference's dependency/linker flags.
 #include "iid/chi_square_tests.h"

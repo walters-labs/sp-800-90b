@@ -2,8 +2,11 @@
 
 Snapshot: 2026-10-20, version 0.1.0, resolved `Cargo.lock`.
 
-This project's own source is covered by [LICENSE](LICENSE) (MIT). Dependencies
-retain their own licenses. The table records Cargo package metadata for the
+Original project contributions use [LICENSE-MIT](LICENSE-MIT). Reference-informed
+adaptations retain the exact [NIST notice](LICENSE-NIST). The combined terms
+and modification notice are in [LICENSE](LICENSE); the source map is in
+[docs/provenance.md](docs/provenance.md). Dependencies retain their own licenses.
+The table records Cargo package metadata for the
 resolved graph, including target-specific and build/procedural-macro packages;
 not every package is linked into every build. This is an inventory, not a
 replacement for the upstream license texts or a binary redistribution bundle.
@@ -50,10 +53,26 @@ contains GMP 6.3.0, MPFR 4.2.2, and MPC 1.4.1. This project enables floating-poi
 support, not MPC complex-number support. The binding package includes
 `LICENSE-LGPL.md` and `LICENSE-GPL.md`; its bundled native source directories
 contain their own `COPYING*` files. Review those source notices when distributing
-linked binaries. The crate's MIT metadata does not relicense these dependencies.
+linked binaries. The crate's license file does not relicense these dependencies.
 
 `bzip2` 0.6.1 uses the Rust `libbz2-rs-sys` backend in this lockfile; the backend
 has its own `bzip2-1.0.6` license declaration.
+
+## Reference software attribution
+
+We acknowledge the National Institute of Standards and Technology (NIST) as the
+source of SP800-90B_EntropyAssessment, revision
+`87c104d0ed4cbc96103e7b8b38d6f2c7e0a6b289`. This project adapts reference
+algorithms and implementation conventions into Rust; it is not a clean-room
+claim. Modifications dated 2026-10-19 through 2026-10-20 include MPFR arithmetic,
+Rust data structures, structured diagnostics and stricter failure handling.
+The complete upstream notice is preserved in LICENSE-NIST and LICENSE.
+
+The xoshiro256** generator is credited to David Blackman and Sebastiano Vigna,
+identified as public domain in the pinned reference. The external reference
+chi-square header also carries a separate Cephes notice; the Rust implementation
+uses different MPFR tail routines. See the provenance record for the distinction
+between Rust adaptations and externally compiled reference components.
 
 ## Reference tooling
 

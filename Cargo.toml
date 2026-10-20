@@ -4,13 +4,13 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.97.1"
 description = "NIST SP 800-90B entropy assessment library and command-line tools"
-license = "MIT"
+license-file = "LICENSE"
 repository = "https://github.com/walters-labs/sp-800-90b"
 readme = "README.md"
 keywords = ["nist", "entropy", "random", "min-entropy", "statistics"]
 categories = ["algorithms", "science"]
 include = [
-    "Cargo.toml", "Cargo.lock", "LICENSE", "THIRD_PARTY.md", "README.md",
+    "Cargo.toml", "Cargo.lock", "LICENSE", "LICENSE-MIT", "LICENSE-NIST", "THIRD_PARTY.md", "README.md",
     "src/**", "examples/**", "tests/**", "docs/**", "scripts/*.py",
 ]
 

@@ -1,3 +1,5 @@
+// Project test adapter for NIST SP800-90B_EntropyAssessment (2026-10-20).
+// External NIST code retains its notices; see LICENSE-NIST and docs/provenance.md.
 // Keep the reference algorithms unchanged, but replace OS seeding at the
 // boundary so the full CLI workflow is reproducible with one OpenMP thread.
 #define seed nist_os_seed

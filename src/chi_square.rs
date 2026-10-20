@@ -1,3 +1,6 @@
+// Reference-informed adaptation of NIST SP800-90B_EntropyAssessment.
+// Modified in Rust, 2026-10-19–2026-10-20; see docs/provenance.md for sources
+// and changes. Preserve the upstream notice in LICENSE-NIST (also in LICENSE).
 //! Chi-square independence and goodness-of-fit tests (§5.2.1–§5.2.4).
 use rug::{Float, float, ops::Pow};
 use std::{error::Error, fmt};

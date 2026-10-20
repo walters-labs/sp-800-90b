@@ -1,3 +1,6 @@
+// Reference-informed adaptation of NIST SP800-90B_EntropyAssessment.
+// Modified in Rust, 2026-10-19–2026-10-20; see docs/provenance.md for sources
+// and changes. Preserve the upstream notice in LICENSE-NIST (also in LICENSE).
 use crate::{ConfidenceConstant, most_common_value::confidence_value};
 use rug::{Float, ops::Pow};
 
