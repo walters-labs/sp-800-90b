@@ -27,6 +27,40 @@ fn binary_distribution_changes() {
     let p = a.clone().gamma_inc(&Float::with_val(256, 50)) / a.gamma();
     assert!(Float::with_val(256, r.p_value / p - 1).abs() < 1e-73);
 }
+
+#[test]
+fn potential_errata_2025_section_5_2_4_binary_critical_value() {
+    // NIST's May 29, 2025 potential errata replace 27.887 with 27.877:
+    // https://csrc.nist.gov/files/pubs/sp/800/90/b/final/docs/sp800-90b_errata_potential_updates.pdf
+    // The latter is rounded; the API uses the df=9 upper tail at alpha=0.001.
+    // Bracket that boundary with actual samples. The rejected case is also
+    // below 27.887, so the original printed cutoff would incorrectly pass it.
+    for (deviations, expected_statistic, reject) in [
+        ([186usize, 15, 5, 0, 0], "27.8768", false),
+        ([186usize, 15, 5, 1, 0], "27.8776", true),
+    ] {
+        let mut data = Vec::with_capacity(100_000);
+        for deviation in deviations {
+            for ones in [5_000 + deviation, 5_000 - deviation] {
+                data.extend(std::iter::repeat_n(0, 10_000 - ones));
+                data.extend(std::iter::repeat_n(1, ones));
+            }
+        }
+        let result = test(&data).unwrap();
+        assert_eq!(result.degrees_of_freedom, 9);
+        assert_eq!(result.expected, vec![Float::with_val(256, 5_000); 2]);
+        // Each balanced pair of blocks contributes 8 * deviation^2 / 10_000.
+        let expected = Float::with_val(256, Float::parse(expected_statistic).unwrap());
+        assert!(Float::with_val(256, &result.statistic - expected).abs() < 1e-73);
+        let alpha = Float::with_val(256, Float::parse("0.001").unwrap());
+        assert_eq!(result.p_value < alpha, reject);
+        assert_eq!(
+            result.reject_goodness_of_fit, reject,
+            "incorrect decision for statistic {expected_statistic}"
+        );
+    }
+}
+
 #[test]
 fn nonbinary_uniform_and_changed_blocks() {
     let r = test(&[0, 1, 2].repeat(100)).unwrap();

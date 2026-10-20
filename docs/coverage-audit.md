@@ -12,7 +12,26 @@ This is a coverage and integration audit, not a proof of algorithm correctness o
 - [NIST publication status](https://csrc.nist.gov/pubs/sp/800/90/b/final) and [May 2025 potential errata](https://csrc.nist.gov/files/pubs/sp/800/90/b/final/docs/sp800-90b_errata_potential_updates.pdf).
 - [Pinned reference source](https://github.com/usnistgov/SP800-90B_EntropyAssessment/tree/87c104d0ed4cbc96103e7b8b38d6f2c7e0a6b289). This audit does not claim parity with an unpinned future upstream revision.
 
-The potential errata correct the binary goodness-of-fit critical value to 27.877 and the MCV example to approximately 0.6822 for the upper probability and 0.5518 bits for entropy. Our chi-square code evaluates the tail probability, and MCV calculates the formula rather than hardcoding those example numbers. Dedicated regressions identifying these errata would improve traceability; they are not currently named tests.
+The May 2025 potential errata propose corrections; they are not official changes
+to the publication. Both entries now have explicitly named regression tests:
+
+- **§5.2.4:** `potential_errata_2025_section_5_2_4_binary_critical_value` in
+  [chi_square_goodness_of_fit.rs](../tests/chi_square_goodness_of_fit.rs) checks
+  binary samples with statistics 27.8768 (pass) and 27.8776 (reject). These bracket
+  the df=9, alpha=0.001 critical value, rounded to the proposed 27.877. The rejected
+  case would pass under the original printed 27.887 cutoff. The implementation
+  evaluates the tail probability rather than using a rounded cutoff.
+- **§6.3.1:** `potential_errata_2025_section_6_3_1_example_preserves_l_minus_one` in
+  [most_common_value.rs](../tests/most_common_value.rs) distinguishes the proposed
+  example arithmetic from the specified estimator. The printed intermediate
+  variance 0.012 gives approximately 0.6822 for the upper probability and 0.5518
+  bits for entropy, as proposed. However, the example's 20 samples have
+  `p_hat = 8/20`, and the specified `p_hat * (1 - p_hat) / (L - 1)` is
+  `0.24/19`, not 0.012. With the publication's confidence constant 2.576, the
+  estimator therefore returns approximately 0.6895174061 and 0.5363411235 bits.
+  The test checks these outputs against independent high-precision decimal
+  calculations and separately checks the proposed printed arithmetic. No
+  estimator formula is changed to match the inconsistent example.
 
 ## Computational coverage
 
@@ -76,13 +95,18 @@ These require preservation in documentation and regression tests rather than aut
 
 ## Evidence and its limits
 
-Latest regular-suite verification on 2026-10-20, after the CLI and API usability review:
+Latest full regular-suite verification on 2026-10-20, after the CLI and API
+usability review and before the two named potential-errata regressions:
 
 - `cargo test --all-targets`: **164 passed, 0 failed, 36 opt-in tests ignored**.
 - `cargo test --doc`: **14 passed**.
 - Clippy with warnings denied, formatting, and whitespace checks: passed.
 - Before the API usability additions, the pinned reference harness separately ran **28 reference tests across seven targets; all passed**. Its qualified status was `passed_with_binary64_baseline_differences`: nine clean baseline datasets and the two documented M1 exceptions.
 - The new full-size restart and validation CLI tests were run separately and passed, including IID success, fallback, conditioning, and rejection. The regular-suite ignored count is not a claim that all opt-in tests were skipped throughout the session or that all 36 were rerun together.
+
+After adding the two named potential-errata regressions,
+`cargo test --test most_common_value --test chi_square_goodness_of_fit` passed
+all **15 tests** in those targets. No production code changed.
 
 The [latest reference verification](#reference-verification--2026-10-20) records
 local evidence paths. An earlier Linux CI success was reported by the user;
@@ -113,8 +137,8 @@ Individual reference tests can be run against caller-supplied environment paths.
 | Done (up to 128 bits) | **G4 Wider symbol support** | `SymbolReduction` preserves sample boundaries and records input/output widths, ranking, and entropy ceiling. Tests cover bit order, width boundaries, invalid rankings and samples, exhaustive 16-bit projection, and downstream NIST reference agreement. |
 | Implemented | **G5 Conditioning integration** | Typed Table 1 dimensions, vetted truncation, and strict assessment integration are implemented. Explicit additional-source accounting is implemented. |
 | Implemented (schema version 1) | **G6 CLI and reports** | All six commands expose documented flags and applicable status/exit, decimal-string entropy, hash and seed fields. Non-IID/IID/restart/transpose support selection; validate reads full files and conditioning accepts numerical inputs. Full intermediate estimator diagnostics remain API-only; NIST flag aliases are intentionally absent. |
-| P2 | **G7 Numerical and robustness coverage** | Add independent golden vectors, rounding-bound tests for conditioning, tail minimality/boundary checks for health cutoffs, and property/fuzz tests for preprocessing and state machines. Benchmark time and peak memory on representative million-sample inputs; add named regressions for both potential errata. |
-| In progress | **G8 Release preparation** | Rust 1.97.1 is the declared tested baseline; platform limits, package metadata, explicit packaged files, and a locked dependency-license inventory are documented. Package verification and publication dry run passed. The API review and NIST attribution review are complete; the subsequent README/MSRV/errata/CI review, final-revision verification, registry authorization and actual publication remain. The inventory is not a linked-binary redistribution bundle. |
+| P2 | **G7 Numerical and robustness coverage** | Named regressions cover both potential errata as described above. Add independent golden vectors, rounding-bound tests for conditioning, tail minimality/boundary checks for health cutoffs, and property/fuzz tests for preprocessing and state machines. Benchmark time and peak memory on representative million-sample inputs. |
+| In progress | **G8 Release preparation** | Rust 1.97.1 is the declared tested baseline; platform limits, package metadata, explicit packaged files, and a locked dependency-license inventory are documented. Package verification and publication dry run passed. The API, NIST attribution, README and potential-errata reviews are complete; MSRV/CI review, final-revision verification, registry authorization and actual publication remain. The inventory is not a linked-binary redistribution bundle. |
 | Scope decision | **G9 Operational source integration** | If this becomes a device-facing source library, design GetNoise/GetEntropy/HealthTest interfaces, startup withholding, on-demand operation and recovery. Otherwise document those responsibilities as outside the assessment crate. |
 
 G1 is implemented by `assess_validation` for byte-valued raw samples and unpacked conditioned output bits. It enforces dataset sizes, consistent track selection, H_submitter, complete evidence, restart acceptance, and conditioning block units. G2 now has a pinned build/comparison harness and Linux CI configuration (the user reports a successful hosted run in 15 minutes 9 seconds); G3 now includes successful IID and non-IID restart comparisons. The six-command CLI now exposes these numerical workflows with documented version 1 reports. Release preparation and CI on the final revision remain the next steps.
