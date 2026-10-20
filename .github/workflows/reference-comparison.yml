@@ -1,0 +1,46 @@
+name: NIST reference comparison
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nist-reference-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  reference:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install reference dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ pkg-config libjsoncpp-dev libssl-dev libbz2-dev libdivsufsort-dev libmpfr-dev libgmp-dev
+      - name: Select Rust toolchain
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          rustup override set 1.97.1
+      - name: Test harness policy
+        run: python3 -m unittest discover -s scripts -p 'test_*.py'
+      - name: Build pinned NIST and compare
+        run: python3 scripts/reference_harness.py --fetch --cxx g++ --require-extended-precision
+      - name: Preserve diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nist-reference-results
+          path: |
+            target/reference-runs/*/report.json
+            target/reference-runs/*/*.log
+            target/reference-runs/*/nist/cpp/selftest/*.res
+          if-no-files-found: warn
+          retention-days: 14

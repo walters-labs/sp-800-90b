@@ -1,0 +1,20 @@
+{
+  "repository": "https://github.com/usnistgov/SP800-90B_EntropyAssessment.git",
+  "commit": "87c104d0ed4cbc96103e7b8b38d6f2c7e0a6b289",
+  "test_targets": ["nist_reference", "non_iid_reference", "chi_square_reference", "permutation_reference", "iid_reference", "restart_reference", "conditioning_reference"],
+  "binary64_baseline_absolute_tolerance": 1e-9,
+  "binary64_baseline_exceptions": {
+    "biased-random-bytes": [
+      "Bitstring LZ78Y Prediction Estimate: min entropy",
+      "Bitstring MultiMMC Prediction Estimate: min entropy",
+      "Literal Lag Prediction Estimate: min entropy",
+      "Bitstring Lag Prediction Estimate: min entropy",
+      "Literal Lag Prediction Estimate: P_local",
+      "Bitstring MultiMMC Prediction Estimate: P_local"
+    ],
+    "ringOsc-nist": [
+      "Literal MultiMCW Prediction Estimate: min entropy",
+      "Literal MultiMCW Prediction Estimate: P_local"
+    ]
+  }
+}

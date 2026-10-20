@@ -1,8 +1,12 @@
 # sp-800-90b
 
-Incremental Rust implementation of NIST SP 800-90B. Currently implements
-**Most Common Value (§6.3.1)**, **Collision (§6.3.2)**, **Markov (§6.3.3)**, **Compression (§6.3.4)**, **t-Tuple (§6.3.5)**, **LRS (§6.3.6)**, **MultiMCW (§6.3.7)**, **Lag (§6.3.8)**, **MultiMMC (§6.3.9)**, and **LZ78Y (§6.3.10)**; this is not yet a full entropy-source
-assessment or a replacement for the NIST tools.
+Rust implementation of all ten NIST SP 800-90B non-IID estimators (§6.3.1–6.3.10),
+combined non-IID and IID assessment APIs, and the IID chi-square, LRS, and
+permutation tests, restart testing, conditioning entropy calculations, and the
+approved continuous health tests. This library is not full entropy-source
+validation or certification.
+
+See the [coverage audit](docs/coverage-audit.md) for implemented scope, reference-test limits, intentional differences, and remaining work.
 
 ```rust
 use sp_800_90b::most_common_value;
@@ -345,6 +349,634 @@ N, C, and r for literal and bitstring inputs on all 11 datasets, using the same
 
 Reference: [NIST LZ78Y implementation](https://github.com/usnistgov/SP800-90B_EntropyAssessment/blob/87c104d0ed4cbc96103e7b8b38d6f2c7e0a6b289/cpp/non_iid/lz78y_test.h).
 
-All ten non-IID estimators in §6.3 are now available individually. Combined
-assessment, IID tests, restart tests, and the remaining source-validation
+All ten non-IID estimators in §6.3 are available individually and through the
+combined API below. IID tests, restart tests, and the remaining source-validation
 workflow are not yet implemented.
+
+## Complete non-IID assessment API
+
+```rust
+use sp_800_90b::{assess_non_iid, NonIidOptions};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let samples = std::fs::read("samples.bin")?; // one symbol per byte
+    let report = assess_non_iid(&samples, NonIidOptions::default())?;
+    println!("{} bits per input symbol", report.min_entropy);
+    println!("All applicable estimators completed: {}", report.is_complete());
+    for warning in &report.warnings {
+        eprintln!("{warning:?}");
+    }
+    Ok(())
+}
+```
+
+`NonIidOptions` supplies shared MPFR precision and confidence constant, with all
+other estimator parameters fixed to their standard defaults. It also supports:
+
+- `bits_per_symbol: None`: infer the width from the highest bit in use, with a
+  minimum of one. An explicit `Some(bits)` with `bits` in `1..=8` includes declared leading zero
+  bits; values that do not fit are rejected instead of silently masked.
+- `mode: NonIidMode::Initial`: assess rank-mapped literal symbols. For alphabets
+  larger than two, also assess the original bytes expanded MSB-first. A
+  two-symbol source is mapped to 0/1 and assessed once, regardless of byte width.
+- `mode: NonIidMode::Conditioned`: assess only the original raw bitstring.
+- `bitstring_limit: None`: use all bits. `Some(1_000_000)` matches NIST's `-t`;
+  other limits of at least two are supported. Literal input is never truncated.
+  The limit has no effect when the initial two-symbol path skips bitstring testing.
+
+For initial multivalued data, the final estimate is
+`min(H_original, bits_per_symbol * H_bitstring)`, capped by the symbol width.
+The two-symbol initial path uses `H_original` alone. Conditioned mode exposes
+`h'` in `report.bitstring.as_ref().unwrap().min_entropy` (bits per bit), while
+`report.min_entropy` remains in **bits per original input symbol**, matching
+NIST's assessed-entropy output.
+
+`literal` and `bitstring` contain per-dataset minima and all ten results in
+specification order. `EstimatorOutcome::Available` retains boxed, typed
+`EstimatorDetails`, including counts and high-precision intermediate values.
+`NotApplicable` marks the three binary-only estimators on a nonbinary literal
+stream. `Unavailable(EstimateError)` retains failures such as insufficient data
+or no qualifying tuples. Those failures are excluded from the minimum;
+**`is_complete()` is false whenever an applicable estimator is unavailable**.
+A partial minimum must not be mistaken for a completed run. This safely handles
+short inputs where some C++ paths would use a sentinel or undefined arithmetic.
+
+Warnings identify fewer than one million input samples, declared widths wider
+than observed values, and bitstring truncation. A constant input returns an
+explicit zero-entropy result with `ConstantInput` and no estimator branches;
+this implements NIST's no-entropy outcome without exiting the process.
+Empty and single-sample inputs are rejected. `is_complete()` concerns estimator
+availability only: it does not remove data-size warnings or establish source
+validation. The selected options, original sorted alphabet, and data sizes are
+included for interpreting the report.
+
+A minimal file-based example is available:
+
+```sh
+cargo run --example non_iid -- /path/to/samples.bin 8
+```
+
+API tests cover raw-bit preparation before remapping, sparse two-symbol sources,
+width validation and padding, truncation, partial results, constant data,
+precision propagation, and aggregation. Full-report integration tests compare
+all component estimates and final minima against the 11 NIST self-test outputs.
+Additional live-executable comparisons cover conditioned mode, explicit widths,
+and million-bit truncation:
+
+```sh
+NIST_REFERENCE_DIR=/path/to/SP800-90B_EntropyAssessment \
+  cargo test --test non_iid_reference -- --ignored --test-threads=1
+```
+
+Component tolerances retain `1e-12` for non-predictors and `1e-9` for predictors;
+final per-symbol comparisons allow `bits_per_symbol * 1e-9`. The test profile
+optimizes this crate to keep full-data comparisons practical without changing
+native dependency builds. No external NIST files are modified by these tests.
+
+Reference: [NIST non-IID assessment driver](https://github.com/usnistgov/SP800-90B_EntropyAssessment/blob/87c104d0ed4cbc96103e7b8b38d6f2c7e0a6b289/cpp/non_iid_main.cpp).
+
+## Chi-square independence
+
+`chi_square_independence(&samples)` implements the binary block test (§5.2.3)
+and nonbinary pair test (§5.2.1), choosing by the observed alphabet size.
+It returns the statistic, degrees of freedom, upper-tail p-value, rejection
+at significance level 0.001, and observed/expected counts with bin mappings.
+Symbols are rank-mapped automatically. Incomplete trailing blocks are excluded
+from observations but included in the symbol proportions.
+
+```rust
+use sp_800_90b::chi_square_independence;
+let result = chi_square_independence(&[0, 1].repeat(500)).unwrap();
+assert!(result.reject_independence);
+```
+
+`chi_square_independence_with_options` accepts `ChiSquareOptions` with
+`precision_bits` (default 256) and `grouping`:
+
+- `ChiSquareGrouping::NistReference` (default) preserves binary64 arithmetic
+  for NIST's discrete block-length and binning decisions only.
+- `ChiSquareGrouping::ExactCounts` uses exact count products and rational
+  comparisons for those decisions. Mathematically equal expectations can sort
+  differently from NIST's rounded values, changing bins and the statistic.
+
+Both modes compute expected counts, the statistic, and the upper-tail probability
+with MPFR. The probability uses the finite positive-term gamma recurrence for integer
+degrees of freedom, so it avoids subtracting a CDF close to one. Results are not bit-for-bit copies
+of NIST's binary64 calculations.
+
+Constant input, inadequate binary counts, and nonpositive degrees of freedom
+return explicit errors. In particular, the reference's zero-degree-of-freedom
+p-value of one is not reported as a pass. A non-rejection does not establish IID;
+the other IID checks are still needed.
+
+Tests include the publication's Example 11 (using unrounded expectations),
+boundary counts, tail handling, bin merging, and independent closed-form
+probability checks. An optional comparison against all eleven NIST datasets uses
+`tests/reference/chi_square_independence.cpp`, a thin adapter to the unmodified
+NIST header. Compile it with the reference's include paths and dependency/linker
+flags, then run:
+
+```sh
+NIST_REFERENCE_DIR=/path/to/SP800-90B_EntropyAssessment \
+NIST_CHI_SQUARE_REFERENCE=/path/to/compiled-adapter \
+cargo test --test chi_square_reference -- --ignored --nocapture
+```
+
+## Chi-square goodness of fit
+
+`chi_square_goodness_of_fit(&samples)` compares symbol distributions across ten
+consecutive blocks of `samples.len() / 10` samples (§5.2.2 and §5.2.4). Trailing
+samples affect global proportions but are excluded from block observations,
+matching NIST. The result exposes per-block counts, expected counts, symbol-to-bin
+mapping, statistic, degrees of freedom, p-value, and `reject_goodness_of_fit`
+(at p < 0.001).
+
+```rust
+use sp_800_90b::chi_square_goodness_of_fit;
+let result = chi_square_goodness_of_fit(&[0, 1, 2].repeat(100)).unwrap();
+assert!(!result.reject_goodness_of_fit);
+assert_eq!(result.degrees_of_freedom, 18);
+```
+
+Binary data uses two unmerged bins and nine degrees of freedom. As in the
+reference, this path does not enforce a minimum expected count of five.
+Nonbinary data pools symbols in increasing frequency order until each bin has
+expected count at least five, merging an underfilled final bin backward.
+Its degrees of freedom are `9 * (number_of_bins - 1)`.
+
+`chi_square_goodness_of_fit_with_options` uses the same `ChiSquareOptions` as
+independence: default 256-bit MPFR calculations and NIST binary64 grouping
+thresholds, or optional exact-count grouping. Fewer than ten samples, constant
+input, or fewer than two pooled bins return errors, never a statistical pass.
+Non-rejection alone does not establish IID.
+
+The optional reference suite above now checks both chi-square tests on all
+eleven NIST datasets. Rebuild the adapter to enable goodness-of-fit mode
+(the adapter's optional second argument selects it).
+
+## Permutation tests
+
+`permutation_tests(&samples)` runs all 19 statistics from §5.1: excursion,
+directional runs (count and longest), increases/decreases, median runs (count
+and longest), collision (average and maximum), periodicity and covariance at
+lags 1, 2, 8, 16, 32, and bzip2 compressed length.
+
+```rust,no_run
+use sp_800_90b::{permutation_tests_with_options, PermutationOptions};
+let samples = [0, 1, 2].repeat(100);
+let report = permutation_tests_with_options(&samples, PermutationOptions {
+    seed: Some([1, 2, 3, 4]),
+    ..Default::default()
+}).unwrap();
+println!("reject: {}, shuffles: {}", report.reject, report.permutations_performed);
+```
+
+The default seed comes from the operating system and is returned in the report.
+An explicit nonzero four-word state reproduces the run. The implementation uses
+xoshiro256** and NIST's unbiased Fisher–Yates shuffle, sequentially. A given seed
+matches a single reference shuffle stream; the normal multithreaded NIST command
+uses separate jumped streams and need not produce the same counters.
+
+Each statistic reports its original value and counts of shuffled values greater
+than, equal to, and less than it. At most 10,000 shuffles are performed. A statistic
+rejects if either inclusive tail (`greater + equal` or `less + equal`) is at most
+five. By default, evaluation of a statistic stops once both counts exceed five;
+its counters may therefore sum to fewer than 10,000. Set `early_stop: false` to
+retain all counts. These are permutation counts, not chi-square p-values.
+
+`PermutationArithmetic::NistReference` is the default: excursion and average
+collision use binary64 as in NIST, with integer-valued statistics accumulated
+exactly. Compiler floating-point contraction can still cause tiny excursion
+differences. `PermutationArithmetic::ExactCounts` instead compares rational
+statistics by exact integer cross-products, preserving exact ties without
+floating-point rounding. Reported values use `rug::Float` at 256 bits.
+`permutation_statistics` computes just the unpermuted statistics in
+`PERMUTATION_NAMES` order.
+
+For binary inputs, observed symbols are rank-mapped to 0 and 1. Conversion I
+counts ones per eight samples; conversion II packs them MSB first, retaining a
+partial final block with zero padding. Nonbinary covariance, excursion, and
+compression retain raw symbol values. Compression uses level-5 bzip2 on decimal
+symbols separated by single spaces, with no trailing space.
+
+The API rejects constant inputs and requires at least 2,056 binary samples or
+257 nonbinary samples. These conservative limits ensure a completed collision
+in every shuffle, avoiding the reference's undefined average when no collision
+exists. The input must also fit the supported bzip2 buffer bound (`u32::MAX / 4`
+samples). These API minimums do not replace NIST's assessment data requirements.
+A non-rejection is not full IID validation.
+
+Validation includes hand-calculated statistics, partial binary conversions,
+ties and rejection boundaries, repeatable seeds, early/full-run agreement, and
+an optional adapter calling unmodified NIST statistics and shuffle functions:
+
+```sh
+NIST_REFERENCE_DIR=/path/to/SP800-90B_EntropyAssessment \
+NIST_PERMUTATION_REFERENCE=/path/to/compiled-permutation-adapter \
+cargo test --test permutation_reference -- --ignored
+```
+
+Build `tests/reference/permutation.cpp` with the same reference include and link
+flags as the chi-square adapter, adding `-lbz2`. The suite compares original
+statistics on all eleven datasets, and exact seeded counters on 4,096-sample
+prefixes of binary, byte, and ring-oscillator data. Full million-sample runs can
+be expensive, particularly when a statistic requires all 10,000 shuffles.
+
+## Combined IID assessment
+
+`assess_iid(&samples, IidOptions)` follows the reference `ea_iid` workflow:
+MCV entropy estimates, chi-square independence and goodness of fit, the IID LRS
+hypothesis test (§5.2.5), and all 19 permutation statistics.
+
+```rust,no_run
+use sp_800_90b::{assess_iid, IidOptions, IidDecision};
+let samples = std::fs::read("samples.bin").unwrap();
+let report = assess_iid(&samples, IidOptions::default()).unwrap();
+if report.decision == IidDecision::NotRejected {
+    println!("{} bits/sample", report.min_entropy.as_ref().unwrap());
+}
+```
+
+The report distinguishes `NotRejected`, `Rejected`, and `Incomplete`.
+`checks` retains each test's full result or error; `is_complete()` reports whether
+all checks ran successfully, regardless of statistical rejection. Any observed
+rejection takes precedence over an unavailable check. Constant data short-circuits
+with rejection, zero candidate entropy, and no hypothesis checks.
+
+`candidate_min_entropy` is the MCV-derived estimate even if IID rejects.
+`min_entropy` is present only when every check completed without rejecting.
+Neither result incorporates a submitter entropy bound or establishes complete
+entropy-source validation. Rejection does not automatically run the non-IID API.
+
+Initial mode estimates literal MCV entropy and, for observed alphabets larger
+than two, raw bitstring MCV entropy. The candidate is the minimum of the literal
+estimate, bit width times the bit estimate, and the bit width. Conditioned mode
+estimates only bitstring MCV entropy; its per-bit result is
+`report.bitstring.as_ref().unwrap().min_entropy`, while the top-level estimate
+remains in bits per original sample. **All hypothesis tests use the full literal
+input in both modes**, as in NIST.
+
+`IidOptions` exposes precision, confidence constant, declared width, mode,
+bitstring truncation, chi-square grouping, and permutation options (including
+seed and exact-count comparisons). It reuses non-IID validation, raw MSB-first
+bit expansion, and warnings for small datasets, excess declared width, and
+truncation. Out-of-range symbols are rejected rather than silently masked.
+A non-rejected small dataset still carries the sample-size warning.
+
+`iid_lrs_test(&samples, precision_bits)` is also available separately. It finds
+the longest repeated substring including overlaps, computes the per-symbol
+collision probability, and evaluates the NIST tail probability with MPFR
+`log1p`/`expm1`. It is distinct from `lrs_estimate`, the non-IID entropy estimator.
+This avoids the native long-double underflow assertion on highly repetitive
+inputs within MPFR's much larger exponent range.
+
+Run the file example with:
+
+```sh
+cargo run --release --example iid -- samples.bin 8
+```
+
+Optional integration tests use `NIST_REFERENCE_DIR` and `NIST_IID_LRS_REFERENCE`:
+
+```sh
+NIST_REFERENCE_DIR=/path/to/SP800-90B_EntropyAssessment \
+NIST_IID_LRS_REFERENCE=/path/to/compiled-iid-lrs-adapter \
+cargo test --test iid_reference -- --ignored
+```
+
+Build `tests/reference/iid_lrs.cpp` with the reference include/link flags plus
+`-ldivsufsort -ldivsufsort64`. The reference LRS comparison excludes full
+ring-oscillator data because NIST asserts on long-double underflow there;
+Rust's extreme-repetition behavior has a separate regression test. The combined
+API comparison invokes `cpp/ea_iid` in both initial and conditioned modes.
+
+## Restart testing
+
+`assess_restart(&samples, &initial_entropy, RestartOptions)` implements §3.1.4
+for **exactly 1,000,000 samples**: 1,000 successive samples from each of 1,000
+restarts, stored row-major. `initial_entropy` is a finite, nonnegative
+`rug::Float` in bits per original sample. Its implied distribution must fit the
+observed alphabet, and it cannot exceed the declared/inferred bit width.
+Constant input and malformed data return explicit errors.
+
+```rust,no_run
+use rug::Float;
+use sp_800_90b::{assess_restart, RestartOptions};
+let samples = std::fs::read("restart-samples.bin").unwrap();
+let h_i = Float::with_val(256, Float::parse("0.85").unwrap());
+let report = assess_restart(&samples, &h_i, RestartOptions {
+    simulation_seed: Some([1, 2, 3, 4]),
+    ..Default::default()
+}).unwrap();
+println!("{:?}: {:?}", report.decision, report.min_entropy);
+```
+
+The sanity check simulates the reference's inverted near-uniform distribution,
+using five million 1,000-sample trials by default. `simulation_rounds` may be
+increased but not reduced below that default. Its family-wise adjustment is
+`alpha = 1 - exp(log(0.99)/2000)`. The cutoff is the sorted observation at
+`floor((1-alpha)*rounds)-1`; a maximum count **equal to the cutoff passes**.
+The implementation uses a histogram instead of storing/sorting every trial.
+H_I=0 has deterministic cutoff 1000 and bypasses the simulation loop.
+
+For reproducibility, the report retains the xoshiro seed, simulation count,
+probability, cutoff, and all 1,000 row and 1,000 column maxima. A missing seed
+uses OS randomness. The simulation deliberately uses binary64 probability and
+uniform draws to match the reference; the supplied H_I and entropy estimates
+retain the selected MPFR precision. A seed specifies one sequential stream,
+not NIST's multiple OpenMP streams. Finite simulations can produce different
+cutoffs on different seeds, particularly near a quantile boundary.
+
+After sanity passes, both row-major and column-major sequences are assessed as
+**literal symbols without bit expansion**. `RestartMode::NonIid` (default)
+runs all applicable non-IID estimators. `RestartMode::Iid` runs MCV plus both
+chi-square tests, the IID LRS test, and permutation tests on both sequences.
+Raw symbols remain available for permutation statistics; binary estimators use
+rank-mapped symbols. If a permutation seed is supplied, each orientation starts
+from that state; otherwise each draws its own OS seed.
+
+The validation condition is `min(H_r,H_c) >= H_I/2`. A successful report exposes
+`min(H_I,H_r,H_c)` in `min_entropy`. Otherwise its decision distinguishes sanity
+rejection, entropy rejection, IID rejection, and incomplete estimation, with no
+validated entropy result. Row/column diagnostics remain available except when
+sanity rejection short-circuits the assessment. Unlike the reference's final
+success message, this API does not award an IID result after an IID test rejects;
+unavailable estimators are also never silently treated as a complete run.
+
+`restart_column_sequence` and `restart_sanity_check` expose the transpose and
+sanity stages independently. The file example is:
+
+```sh
+cargo run --release --example restart -- restart-samples.bin 0.85 non-iid 1
+```
+
+The simulation and million-sample assessments are substantial workloads; use an
+optimized build. Tests cover layout, maxima, cutoff equality, H_I/2 equality,
+invalid inputs, seeded simulation parity, and full non-IID reference agreement.
+The expensive checks are opt-in:
+
+```sh
+NIST_RESTART_REFERENCE=/path/to/compiled-restart-adapter \
+cargo test --lib simulation_matches_reference_stream -- --ignored
+cargo test --test restart sanity_rejection -- --ignored
+NIST_REFERENCE_DIR=/path/to/SP800-90B_EntropyAssessment \
+cargo test --test restart_reference -- --ignored
+```
+
+Build `tests/reference/restart.cpp` with the reference include/link flags,
+including bzip2 and both divsufsort libraries. Its seeded comparison calls NIST's
+unmodified `simulateCount` for binary, noninteger, and full-byte entropy levels.
+The end-to-end non-IID comparison uses H_I=0 to remove Monte Carlo variability;
+a separate test exercises the full five-million-round nondegenerate simulation.
+
+## Conditioning entropy
+
+`conditioning_entropy(n_in, n_out, nw, &h_in, kind, options)` calculates
+`Output_Entropy` (§3.1.5.1.2), clamping the internal width to the input width as
+specified in Appendix E. All entropy quantities are bits **per block**, except
+non-vetted h', which is bits **per output bit**.
+
+```rust
+use rug::Float;
+use sp_800_90b::{conditioning_entropy, ConditioningKind, ConditioningOptions};
+let h_in = Float::with_val(256, 400);
+let result = conditioning_entropy(512, 128, 256, &h_in,
+    ConditioningKind::NonVetted {
+        assessed_entropy_per_bit: Float::with_val(256, 0.5),
+    }, ConditioningOptions::default()).unwrap();
+assert_eq!(result.min_entropy, 64);
+```
+
+For non-vetted conditioning, the final result is the minimum of Output_Entropy,
+`0.999*n_out`, and `h'*n_out`. Obtain h' from the **bitstring** result of an
+appropriate completed conditioned-mode assessment, not its top-level per-symbol
+entropy. For IID assessments, first check that the IID decision is NotRejected.
+The caller supplies the appropriate assessed input entropy and component widths;
+selecting `Vetted` asserts that status rather than verifying the component.
+
+Probability expressions are rounded upward and entropy downward. Working
+precision automatically increases to at least `2*n_in+64` bits and preserves the
+supplied input entropy's precision; the report gives the actual working precision
+and probability bounds. The default output precision is 256 bits, and the default
+working-precision budget is 1,048,576 bits. Exceeding that budget returns an error.
+Zero input entropy and zero h' produce zero entropy without the reference CLI's
+strict-positive restriction. The API does not label a near-full result as full
+entropy or apply separate FIPS eligibility rules.
+
+Eight vetted/non-vetted configurations are compared with `ea_conditioning`:
+
+```sh
+NIST_REFERENCE_DIR=/path/to/SP800-90B_EntropyAssessment \
+cargo test --test conditioning_reference -- --ignored
+cargo run --example conditioning -- 512 128 256 400 0.5
+```
+
+## Continuous health tests
+
+`HealthTests` implements Repetition Count (RCT) and Adaptive Proportion (APT)
+from §4.4 on **raw noise-source samples**. Supply the assessed entropy per sample
+and the source's alphabet size, rather than inferring an alphabet from a small
+chunk. Byte-valued symbols may be sparse; encountering more distinct symbols than
+the configured alphabet produces an error without consuming that sample.
+
+```rust
+use rug::Float;
+use sp_800_90b::{HealthTests, HealthTestOptions};
+let mut tests = HealthTests::new(&Float::with_val(256, 1),
+    HealthTestOptions::default()).unwrap();
+tests.observe_slice(&[0, 1].repeat(512)).unwrap();
+assert!(tests.status().startup_ready());
+assert!(!tests.status().failed());
+```
+
+The default false-positive parameter is alpha=2^-20; integer exponents 1..=128
+are supported. `health_test_cutoffs` exposes cutoff derivation separately. RCT
+uses `1+ceil(-log2(alpha)/H)` and rejects at equality. APT uses the publication's
+`1+CRITBINOM(W,2^-H,1-alpha)` convention, verified against all ten Table 2 entries.
+Its non-overlapping windows have W=1024 for binary sources and W=512 otherwise.
+The first sample is the reference and counts as the first occurrence. APT
+rejects as soon as its reference count reaches C. The optional binary test of
+the opposite symbol's count is not enabled. At very small entropy the calculated
+APT cutoff may exceed W, making APT unable to reject; RCT still operates.
+
+State persists across chunks and APT windows; a window boundary does not reset
+RCT. The status retains the first failure of each test with its zero-based sample
+index and latches failure until explicit `reset()`. Reset also restarts the
+startup count. `startup_ready()` requires at least 1,024 tested samples with no
+latched failure. The application must withhold startup output, handle failures,
+and arrange any required on-demand testing; these APIs do not gate a device or
+release entropy. Partial final windows remain in progress, not classified as
+complete passes. `observe_slice` stops on an input error and preserves the
+successfully consumed prefix.
+
+These are the two approved general-purpose tests, not source-specific diagnostic
+tests or a certification of the physical source. The NIST entropy-assessment
+repository has no matching health-test executable; validation uses the published
+cutoff table plus exact boundary, biased-stream, chunking, and reset tests.
+
+```sh
+cargo run --example health -- raw-samples.bin 1 2
+```
+
+### Strict numerical validation workflow
+
+`assess_validation` coordinates §3.1 track selection, the submitter bound,
+restart testing, and optional conditioning. It requires at least 1,000,000 raw
+sequential samples and exactly 1,000,000 restart samples in row-major order.
+An explicit sample width applies to both datasets. Existing assessment APIs
+remain available for exploratory data and partial estimates.
+
+```rust,no_run
+use rug::Float;
+use sp_800_90b::{assess_validation, ValidationOptions, ValidationDecision};
+# let sequential = vec![0u8; 1_000_000];
+# let restart = vec![0u8; 1_000_000];
+let h_submitter = Float::with_val(256, 0.5); // bits per raw sample
+let report = assess_validation(
+    &sequential, &restart, &h_submitter, None, ValidationOptions::default(),
+)?;
+if report.decision == ValidationDecision::Complete {
+    println!("Entropy per sample: {}", report.output_entropy.unwrap());
+}
+# Ok::<(), sp_800_90b::ValidationError>(())
+```
+
+Set `iid_claim` only when the source has a documented design rationale for IID.
+The workflow tests sequential data, restart rows and columns, and any non-vetted
+conditioned bitstring. Statistical rejection selects the non-IID track for all
+stages; a failed check execution leaves an incomplete report. IID evidence is
+retained; checks stop as soon as rejection or failed execution determines the
+next step. One permutation seed is recorded and reused within the workflow so
+repeated checks cannot change track because of fresh randomness.
+
+The workflow applies `H_I = min(assessed entropy, H_submitter)` before restart
+testing. Rejected restarts and incomplete stages never populate `raw_entropy`
+or `output_entropy`. Diagnostic stage results remain available.
+
+Optional `ValidationConditioning` records the number of raw samples consumed
+per block, output block width, and internal width. Input entropy is calculated
+from the post-restart bound with downward rounding. For non-vetted conditioning,
+provide one byte per output bit (0 or 1), concatenated in generation order,
+representing at least a million **complete output blocks**. The workflow derives
+the per-bit bound from that data; it does not accept an unchecked h′ value.
+`raw_entropy` always means bits per raw sample. With conditioning,
+`output_entropy` means bits per conditioning output block.
+
+`Complete` describes the numerical workflow. Source models, collection and
+restart provenance, vetted-component status, environmental testing, and health
+test deployment still require external evidence. This API does not certify a
+source, establish a full-entropy claim, or model output truncation.
+
+The full million-sample IID workflow regression is opt-in. It passed in about
+46 seconds on the development M1 after reusing IID evidence and optimizing the
+Rust compression backend for tests:
+
+```sh
+cargo test --test validation successful_iid_workflow_uses_one_track -- --ignored --nocapture
+```
+
+For live diagnostics, use `assess_validation_with_progress` with a callback:
+
+```rust,no_run
+# use sp_800_90b::*;
+# use rug::Float;
+# let sequential = vec![0u8; 1_000_000];
+# let restart = sequential.clone();
+let report = assess_validation_with_progress(
+    &sequential, &restart, &Float::with_val(256, 0.5), None,
+    ValidationOptions::default(),
+    &mut |event| match event {
+        ValidationProgress::Permutation { stage, progress }
+            if progress.permutations_completed % 100 == 0 => {
+            eprintln!("{stage}: {} permutations, {:?}, active: {:?}",
+                progress.permutations_completed, progress.elapsed,
+                progress.active_statistics);
+        }
+        ValidationProgress::Permutation { .. } => {}
+        other => eprintln!("{other:?}"),
+    },
+)?;
+# Ok::<(), ValidationError>(())
+```
+
+Callbacks run synchronously and should be brief. Stage-finished events carry
+elapsed wall time and also occur when a stage returns an error; the returned
+report or error determines success. Permutation snapshots arrive before the
+initial statistics and after each shuffle, including the final shuffle.
+`assess_iid_with_progress` and `permutation_tests_with_progress` expose the same
+permutation diagnostics independently. Existing APIs remain silent.
+
+The strict workflow reuses completed restart-row and restart-column IID checks
+from track selection, including their literal MCV estimates. Reuse is internal
+to one invocation; callers cannot supply unrelated cached evidence. An
+unconditioned successful IID run now performs three permutation assessments
+instead of five. The test profile also optimizes the Rust bzip2 backend.
+
+### Reproducible NIST reference comparisons
+
+Run the harness using the existing NIST checkout:
+
+```sh
+python3 scripts/reference_harness.py --reference ../SP800-90B_EntropyAssessment
+```
+
+It exports the exact commit in `tests/reference/manifest.json` to a fresh
+`target/reference-runs/<timestamp>-<pid>/nist` directory. The local checkout's
+branch, working files, and existing binaries are not modified or used as build
+inputs. The pinned commit must be present locally. To fetch it instead, use
+`--fetch`; only that option downloads NIST sources.
+
+The harness builds all five NIST tools and four thin adapters, generates fresh
+results for all eleven bundled datasets, runs NIST's baseline comparator, and
+runs all seven Rust reference-test targets with `--ignored --test-threads=1`.
+The restart adapter also checks a five-million-round positive-entropy sanity
+cutoff using a fixed seed. Full workflow/reference parity remains a separate
+coverage goal; passing these comparisons does not establish source validation.
+
+On Linux, install GCC with OpenMP, Python 3, Perl, Git, pkg-config, and the
+jsoncpp, OpenSSL, bzip2, divsufsort, MPFR, and GMP development packages. The
+`.github/workflows/reference-comparison.yml` workflow installs those dependencies,
+selects Rust 1.97.1, fetches the pinned reference, and runs the strict harness on
+Ubuntu x86-64. It requires `long double` to have more than 53 mantissa bits and
+uploads logs and reports even on failure. CI runs on pull requests, pushes to
+main/master, and manual dispatch; it has not been executed merely by adding the
+workflow locally.
+
+On this project's M1 setup, use the GCC-built jsoncpp library already prepared
+in the NIST checkout (Homebrew's Clang C++ library is not interchangeable here):
+
+```sh
+reference="$HOME/GitHub/SP800-90B_EntropyAssessment"
+python3 scripts/reference_harness.py \
+  --reference "$reference" \
+  --cxx /opt/homebrew/bin/g++-16 \
+  --cppflags="-I$reference/.reference-build/jsoncpp-gcc/include -I/opt/homebrew/include -I/opt/homebrew/opt/openssl@3/include" \
+  --ldflags="$reference/.reference-build/jsoncpp-gcc/lib/libjsoncpp.a -L/opt/homebrew/lib -L/opt/homebrew/opt/openssl@3/lib -lcrypto" \
+  --allow-binary64-baseline-differences
+```
+
+`--cppflags` and `--ldflags` (or `CPPFLAGS`/`LDFLAGS`) accept shell-style quoted
+argument lists. Without overrides, jsoncpp/OpenSSL flags come from pkg-config.
+Paths containing spaces need quoting *inside* those argument lists too.
+
+Each run records commands, toolchain versions, source/dataset hashes,
+`LDBL_MANT_DIG`, elapsed times, exit codes, baseline decisions, and the test
+environment in `report.json`, with separate command logs. Commands have a
+configurable timeout (`--timeout`, default 1800 seconds); timed-out process
+groups are terminated. No prior run's results are reused.
+
+The binary64 allowance is opt-in and applies only to eight named predictor
+fields on two datasets, with absolute differences no greater than `1e-9`.
+Missing/extra fields, unknown mismatches, larger errors, and Rust comparison
+failures still fail the run. Qualified success is explicitly reported as
+`passed_with_binary64_baseline_differences`, not as a clean NIST self-test pass.
+Linux CI does not enable this allowance.
+
+Comparison tolerances remain explicit in the Rust test assertions: typically
+`1e-12` for basic estimates, `1e-9` for predictor roots and combined summaries,
+`1e-10` for conditioning, and `1e-6` for the restart CLI's printed entropy.
+Chi-square scores use a scaled `1e-9` tolerance; deterministic permutation tail
+counts, decisions, and restart simulation cutoffs are compared exactly.
+Existing documented differences (including the skipped reference IID-LRS
+underflow fixture and Rust's stricter failure handling) remain in the
+[coverage audit](docs/coverage-audit.md).
