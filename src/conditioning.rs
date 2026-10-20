@@ -33,6 +33,8 @@ pub enum ConditioningKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ConditioningError {
     InvalidDimensions,
+    InvalidAesKeySize { bits: u32 },
+    ComponentDimensionsMismatch,
     InvalidTruncation,
     NonVettedTruncation,
     InvalidEntropy,
@@ -49,6 +51,8 @@ impl fmt::Display for ConditioningError {
 impl Error for ConditioningError {}
 #[derive(Clone, Debug)]
 pub struct ConditioningEstimate {
+    /// Present only when dimensions were derived from a typed component.
+    pub vetted_component: Option<crate::VettedConditioner>,
     pub input_bits: u32,
     /// Full conditioning output length, before optional truncation.
     pub output_bits: u32,
@@ -186,6 +190,7 @@ pub fn conditioning_entropy(
         )?;
     }
     Ok(ConditioningEstimate {
+        vetted_component: None,
         input_bits,
         output_bits,
         effective_internal_width: width,

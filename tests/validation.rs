@@ -94,10 +94,9 @@ fn eligibility_and_units() {
 fn submitter_bound_restart_and_conditioning() {
     let d = data();
     let h = Float::with_val(256, 0.25);
-    let c = ValidationConditioning::Vetted {
+    let c = ValidationConditioning::VettedComponent {
         samples_per_block: 8,
-        output_bits: 2,
-        internal_width: 8,
+        component: VettedConditioner::Hash(ConditioningHash::Sha256),
     };
     let mut o = options();
     o.conditioning.retained_output_bits = Some(1);
@@ -108,8 +107,8 @@ fn submitter_bound_restart_and_conditioning() {
     assert_eq!(report.raw_entropy.as_ref().unwrap(), &h);
     let expected = conditioning_entropy(
         8,
-        2,
-        8,
+        256,
+        256,
         &Float::with_val(256, 2),
         ConditioningKind::Vetted,
         o.conditioning,
@@ -118,6 +117,10 @@ fn submitter_bound_restart_and_conditioning() {
     assert_eq!(
         report.conditioning.as_ref().unwrap().retained_output_bits,
         1
+    );
+    assert_eq!(
+        report.conditioning.as_ref().unwrap().vetted_component,
+        Some(VettedConditioner::Hash(ConditioningHash::Sha256))
     );
     assert_eq!(report.output_entropy.unwrap(), expected.min_entropy);
 }

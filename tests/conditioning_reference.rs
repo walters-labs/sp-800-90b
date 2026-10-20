@@ -58,3 +58,51 @@ fn output_entropy_matches_reference() {
         );
     }
 }
+
+#[test]
+#[ignore = "requires NIST_REFERENCE_DIR with built cpp/ea_conditioning"]
+fn typed_components_match_reference_dimensions() {
+    use ConditioningAesKey::*;
+    use ConditioningHash::*;
+    let binary =
+        PathBuf::from(std::env::var_os("NIST_REFERENCE_DIR").unwrap()).join("cpp/ea_conditioning");
+    // Every distinct Table 1 width, all six component families, and the
+    // AES-256 MAC/block-cipher-DF distinction.
+    for (component, width) in [
+        (VettedConditioner::Hmac(Sha1), 160),
+        (VettedConditioner::Hash(Sha224), 224),
+        (VettedConditioner::HashDf(Sha256), 256),
+        (VettedConditioner::Hash(Sha3_384), 384),
+        (VettedConditioner::Hmac(Sha512), 512),
+        (VettedConditioner::Cmac(Bits256), 128),
+        (VettedConditioner::CbcMac(Bits192), 128),
+        (VettedConditioner::BlockCipherDf(Bits192), 192),
+        (VettedConditioner::BlockCipherDf(Bits256), 256),
+    ] {
+        let output = Command::new(&binary)
+            .args(["-v", "1024", &width.to_string(), &width.to_string(), "768"])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let text = String::from_utf8(output.stdout).unwrap();
+        let expected: f64 = text
+            .lines()
+            .find_map(|line| line.strip_prefix("(Vetted) h_out = "))
+            .unwrap()
+            .parse()
+            .unwrap();
+        let report = component
+            .assess(1024, &Float::with_val(256, 768), Default::default())
+            .unwrap();
+        assert_eq!(report.output_bits, width);
+        assert_eq!(report.vetted_component, Some(component));
+        assert!(
+            (report.min_entropy.to_f64() - expected).abs() < 1e-10,
+            "{component:?}"
+        );
+    }
+}

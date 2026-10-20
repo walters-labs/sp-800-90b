@@ -8,6 +8,11 @@ use std::{error::Error, fmt, sync::Arc};
 /// Their length must represent at least one million complete output blocks.
 #[derive(Clone, Copy, Debug)]
 pub enum ValidationConditioning<'a> {
+    /// Derives full output and internal widths from SP 800-90B Table 1.
+    VettedComponent {
+        samples_per_block: u32,
+        component: VettedConditioner,
+    },
     Vetted {
         samples_per_block: u32,
         output_bits: u32,
@@ -282,6 +287,14 @@ pub fn assess_validation_with_progress(
             internal_width,
             ..
         } => (samples_per_block, output_bits, internal_width),
+        ValidationConditioning::VettedComponent {
+            samples_per_block,
+            component,
+        } => (
+            samples_per_block,
+            component.output_bits(),
+            component.internal_width(),
+        ),
     });
     if let Some((samples, out, width)) = dimensions
         && (samples == 0
@@ -463,6 +476,13 @@ pub fn assess_validation_with_progress(
         let input_entropy =
             Float::with_val_round(o.conditioning.precision_bits, &raw * samples, Round::Down).0;
         let result = measured(observer, "conditioning bound", |_| {
+            if let Some(ValidationConditioning::VettedComponent { component, .. }) = conditioning {
+                return component.assess(
+                    samples * o.bits_per_symbol as u32,
+                    &input_entropy,
+                    o.conditioning,
+                );
+            }
             conditioning_entropy(
                 samples * o.bits_per_symbol as u32,
                 out,

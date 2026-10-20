@@ -1094,5 +1094,48 @@ Non-vetted conditioning rejects any explicit truncation request, as required
 by §3.1.5.2; use `None` for unmodified output. The strict validation workflow
 accepts the same option through `ValidationOptions::conditioning` and reports
 entropy per delivered block. Invalid truncation configurations are rejected
-before statistical testing. Vetted algorithm metadata/parameter validation and
-additional-source input accounting remain separate work.
+before statistical testing. Typed component dimensions are described below;
+additional-source input accounting remains separate work.
+
+### Typed vetted conditioning components
+
+`VettedConditioner` derives full output length and nominal internal width from
+SP 800-90B (January 2018), §3.1.5.1.1, Table 1. It covers HMAC, AES-CMAC,
+AES-CBC-MAC, hash functions, Hash_df, and AES Block_Cipher_df.
+`ConditioningHash` identifies fixed-output SHA-1, SHA-2, and SHA-3 variants;
+`ConditioningAesKey` permits only 128-, 192-, and 256-bit keys. Numeric key
+lengths can be checked with `ConditioningAesKey::try_from(bits)`.
+
+```rust
+use rug::Float;
+use sp_800_90b::{ConditioningHash, ConditioningOptions, VettedConditioner};
+let component = VettedConditioner::Hash(ConditioningHash::Sha256);
+let report = component.assess(
+    512, &Float::with_val(256, 400),
+    ConditioningOptions { retained_output_bits: Some(128), ..Default::default() },
+)?;
+assert_eq!(report.output_bits, 256);
+assert_eq!(report.retained_output_bits, 128);
+assert_eq!(report.vetted_component, Some(component));
+# Ok::<(), sp_800_90b::ConditioningError>(())
+```
+
+For the strict workflow use `ValidationConditioning::VettedComponent {
+ samples_per_block, component }`. The report retains the selected component.
+The existing manually dimensioned `Vetted` variant and `conditioning_entropy`
+remain available, with `vetted_component: None` in their reports.
+`validate_dimensions` checks externally supplied full-output dimensions;
+truncation belongs in `retained_output_bits` instead.
+
+Hash-based dimensions use digest size, including SHA-512/224 and SHA-512/256.
+AES MAC dimensions remain 128 bits regardless of key length; Block_Cipher_df
+uses key length. For Hash_df and Block_Cipher_df the derived output length is
+also the required `no_of_bits_to_return`. Formula-level input-width clamping
+remains visible separately as `effective_internal_width`.
+
+These are publication-era numerical descriptions, not cryptographic
+implementations or a current approval registry. Selecting one does not establish
+CAVP assurance or validate keys, padding, or implementation behavior. SHA-1 is
+included for historical modeling. SHAKE/XOFs and custom digest sizes are not
+represented. Primary-source input accounting still applies; explicit additional-
+source accounting remains future work.
