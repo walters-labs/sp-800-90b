@@ -103,6 +103,10 @@ fn submitter_bound_restart_and_conditioning() {
     o.conditioning.additional_input_bits = 512;
     let report = assess_validation(&d, &d, &h, Some(c), o).unwrap();
     assert_eq!(report.decision, ValidationDecision::Complete);
+    assert_eq!(report.eligible_entropy(), report.output_entropy.as_ref());
+    let restart = report.restart.as_ref().unwrap();
+    assert_eq!(restart.eligible_entropy(), report.raw_entropy.as_ref());
+    assert!(restart.rows.as_ref().unwrap().eligible_entropy().is_some());
     assert_eq!(report.initial_entropy.as_ref().unwrap(), &h);
     assert_eq!(report.restart.as_ref().unwrap().initial_entropy, h);
     assert_eq!(report.raw_entropy.as_ref().unwrap(), &h);
@@ -140,6 +144,10 @@ fn zero_submitter_bound_is_preserved() {
     let d = data();
     let report = assess_validation(&d, &d, &Float::with_val(256, 0), None, options()).unwrap();
     assert_eq!(report.decision, ValidationDecision::Complete);
+    assert_eq!(report.eligible_entropy(), report.output_entropy.as_ref());
+    let restart = report.restart.as_ref().unwrap();
+    assert_eq!(restart.eligible_entropy(), report.raw_entropy.as_ref());
+    assert!(restart.rows.as_ref().unwrap().eligible_entropy().is_some());
     assert_eq!(report.raw_entropy.unwrap(), 0);
     assert_eq!(report.output_entropy.unwrap(), 0);
 }
@@ -152,6 +160,15 @@ fn restart_failure_never_awards_output() {
     let report =
         assess_validation(&d, &restart, &Float::with_val(256, 0.25), None, options()).unwrap();
     assert_eq!(report.decision, ValidationDecision::RestartRejected);
+    assert!(report.eligible_entropy().is_none());
+    assert!(
+        report
+            .restart
+            .as_ref()
+            .unwrap()
+            .eligible_entropy()
+            .is_none()
+    );
     assert_eq!(
         report.restart.unwrap().decision,
         RestartDecision::SanityRejected
@@ -167,6 +184,7 @@ fn incomplete_iid_evidence_blocks_award() {
     o.restart.permutation.seed = Some([0; 4]);
     let report = assess_validation(&d, &d, &Float::with_val(256, 0), None, o).unwrap();
     assert_eq!(report.decision, ValidationDecision::Incomplete);
+    assert!(report.eligible_entropy().is_none());
     assert_eq!(report.iid_evidence.len(), 1);
     assert!(report.restart.is_none());
     assert!(report.output_entropy.is_none());
@@ -197,6 +215,10 @@ fn non_vetted_output_cap_and_iid_fallback() {
     assert_eq!(report.track, RestartMode::NonIid);
     assert_eq!(report.iid_evidence.len(), 1);
     assert_eq!(report.decision, ValidationDecision::Complete);
+    assert_eq!(report.eligible_entropy(), report.output_entropy.as_ref());
+    let restart = report.restart.as_ref().unwrap();
+    assert_eq!(restart.eligible_entropy(), report.raw_entropy.as_ref());
+    assert!(restart.rows.as_ref().unwrap().eligible_entropy().is_some());
     assert_eq!(report.initial_entropy.unwrap(), 0);
     assert_eq!(report.conditioning.unwrap().assessed_output_cap.unwrap(), 0);
     assert_eq!(report.output_entropy.unwrap(), 0);
@@ -249,6 +271,10 @@ fn successful_iid_workflow_uses_one_track() {
         report.iid_evidence
     );
     assert_eq!(report.decision, ValidationDecision::Complete);
+    assert_eq!(report.eligible_entropy(), report.output_entropy.as_ref());
+    let restart = report.restart.as_ref().unwrap();
+    assert_eq!(restart.eligible_entropy(), report.raw_entropy.as_ref());
+    assert!(restart.rows.as_ref().unwrap().eligible_entropy().is_some());
     assert!(
         report
             .iid_evidence

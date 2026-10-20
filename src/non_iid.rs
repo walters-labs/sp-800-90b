@@ -155,6 +155,15 @@ pub struct NonIidDatasetAssessment {
     pub min_entropy: Float,
 }
 impl NonIidDatasetAssessment {
+    /// Look up an estimator by kind without relying on its position in the report.
+    pub fn estimator(&self, kind: EstimatorKind) -> Option<&EstimatorResult> {
+        self.estimators.iter().find(|r| r.estimator == kind)
+    }
+    /// Completed estimate in bits per dataset symbol (or bit for a bitstring).
+    /// Returns `None` if any applicable estimator was unavailable.
+    pub fn eligible_entropy(&self) -> Option<&Float> {
+        self.is_complete().then_some(&self.min_entropy)
+    }
     pub fn is_complete(&self) -> bool {
         !self
             .estimators
@@ -179,6 +188,14 @@ pub struct NonIidAssessment {
     pub warnings: Vec<AssessmentWarning>,
 }
 impl NonIidAssessment {
+    /// Completed estimate in bits per original input symbol.
+    ///
+    /// Unlike the diagnostic `min_entropy` field, this withholds a partial
+    /// minimum when an applicable estimator failed. Small-sample warnings still
+    /// apply; eligibility here does not imply source validation.
+    pub fn eligible_entropy(&self) -> Option<&Float> {
+        self.is_complete().then_some(&self.min_entropy)
+    }
     /// True if no applicable estimator was unavailable. Constant input is a
     /// complete zero-entropy outcome. This does not certify an entropy source
     /// or remove the minimum-sample warning.

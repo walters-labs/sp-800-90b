@@ -63,7 +63,16 @@ impl fmt::Display for ValidationError {
         write!(f, "validation workflow error: {self:?}")
     }
 }
-impl Error for ValidationError {}
+impl Error for ValidationError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Input(e) => Some(e),
+            Self::Restart(e) => Some(e),
+            Self::Conditioning(e) => Some(e),
+            _ => None,
+        }
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ValidationDecision {
     Complete,
@@ -76,10 +85,12 @@ pub enum ValidationDataset {
     NonIid(Box<NonIidAssessment>),
 }
 impl ValidationDataset {
-    fn entropy(&self) -> Option<&Float> {
+    /// Completed dataset entropy in bits per input symbol. For the conditioned
+    /// output dataset, input symbols are unpacked bits, so this is bits per bit.
+    pub fn eligible_entropy(&self) -> Option<&Float> {
         match self {
-            Self::Iid(r) => r.min_entropy.as_ref().filter(|_| r.is_complete()),
-            Self::NonIid(r) => r.is_complete().then_some(&r.min_entropy),
+            Self::Iid(r) => r.eligible_entropy(),
+            Self::NonIid(r) => r.eligible_entropy(),
         }
     }
 }
@@ -103,6 +114,18 @@ pub struct ValidationAssessment {
     pub raw_entropy: Option<Float>,
     /// Bits per delivered output block (after truncation) if conditioned; otherwise bits per raw sample.
     pub output_entropy: Option<Float>,
+}
+impl ValidationAssessment {
+    /// Final workflow entropy, available only on complete numerical validation.
+    ///
+    /// Units are bits per raw sample without conditioning, or bits per delivered
+    /// output block with conditioning (including any requested truncation).
+    /// The `raw_entropy` field separately reports bits per raw sample.
+    pub fn eligible_entropy(&self) -> Option<&Float> {
+        (self.decision == ValidationDecision::Complete)
+            .then_some(self.output_entropy.as_ref())
+            .flatten()
+    }
 }
 
 /// Live, synchronous workflow diagnostics. Finished events are emitted even
@@ -421,7 +444,7 @@ pub fn assess_validation_with_progress(
     let Some(h) = report
         .sequential
         .as_ref()
-        .and_then(ValidationDataset::entropy)
+        .and_then(ValidationDataset::eligible_entropy)
     else {
         return Ok(report);
     };
@@ -475,7 +498,7 @@ pub fn assess_validation_with_progress(
             let Some(h) = report
                 .conditioned
                 .as_ref()
-                .and_then(ValidationDataset::entropy)
+                .and_then(ValidationDataset::eligible_entropy)
             else {
                 return Ok(report);
             };

@@ -19,7 +19,7 @@ impl Default for MarkovOptions {
 pub struct MarkovEstimate {
     pub sample_count: usize,
     pub symbol_counts: [usize; 2],
-    /// Overlapping transition counts, indexed by [previous][next].
+    /// Overlapping transition counts, indexed by `[previous][next]`.
     pub transition_counts: [[usize; 2]; 2],
     pub initial_probabilities: [Float; 2],
     /// Unobserved outgoing rows are both zero, matching NIST.

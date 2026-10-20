@@ -76,7 +76,14 @@ impl fmt::Display for PermutationError {
         }
     }
 }
-impl Error for PermutationError {}
+impl Error for PermutationError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Compression(e) => Some(e),
+            _ => None,
+        }
+    }
+}
 #[derive(Clone, Debug)]
 pub struct PermutationTestResult {
     pub name: &'static str,

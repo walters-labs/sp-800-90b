@@ -103,7 +103,10 @@ impl IidChecks {
             && self.longest_repeated_substring.is_ok()
             && self.permutation.is_ok()
     }
-    pub(crate) fn rejected(&self) -> bool {
+    /// Whether any successfully executed check rejected IID.
+    ///
+    /// `false` does not imply that all checks ran: inspect `is_complete()` too.
+    pub fn rejected(&self) -> bool {
         self.independence
             .as_ref()
             .is_ok_and(|r| r.reject_independence)
@@ -138,6 +141,13 @@ pub struct IidAssessment {
     pub warnings: Vec<AssessmentWarning>,
 }
 impl IidAssessment {
+    /// Entropy in bits per original input symbol, only for complete,
+    /// non-rejected IID evidence. Does not establish source validation.
+    pub fn eligible_entropy(&self) -> Option<&Float> {
+        (self.decision == IidDecision::NotRejected && self.is_complete())
+            .then_some(self.min_entropy.as_ref())
+            .flatten()
+    }
     pub fn is_complete(&self) -> bool {
         self.checks.as_ref().is_some_and(IidChecks::is_complete)
     }

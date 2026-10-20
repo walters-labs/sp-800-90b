@@ -74,7 +74,14 @@ impl fmt::Display for RestartError {
         }
     }
 }
-impl Error for RestartError {}
+impl Error for RestartError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Input(e) => Some(e),
+            _ => None,
+        }
+    }
+}
 #[derive(Clone, Debug)]
 pub struct RestartSanity {
     pub seed: [u64; 4],
@@ -100,6 +107,11 @@ pub enum RestartDatasetAssessment {
     },
 }
 impl RestartDatasetAssessment {
+    /// Entropy in bits per raw sample, only if all applicable estimates/checks
+    /// completed and IID was not rejected. `min_entropy()` remains diagnostic.
+    pub fn eligible_entropy(&self) -> Option<&Float> {
+        (self.is_complete() && !self.iid_rejected()).then(|| self.min_entropy())
+    }
     pub fn min_entropy(&self) -> &Float {
         match self {
             Self::NonIid(r) => &r.min_entropy,
@@ -137,6 +149,14 @@ pub struct RestartAssessment {
     pub decision: RestartDecision,
     /// min(H_I,H_r,H_c), available only after complete successful validation.
     pub min_entropy: Option<Float>,
+}
+impl RestartAssessment {
+    /// Final restart entropy in bits per raw sample, only after validation.
+    pub fn eligible_entropy(&self) -> Option<&Float> {
+        (self.decision == RestartDecision::Validated)
+            .then_some(self.min_entropy.as_ref())
+            .flatten()
+    }
 }
 fn prepare_restart(
     samples: &[u8],

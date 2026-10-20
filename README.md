@@ -55,12 +55,36 @@ Assessment commands distinguish rejection (exit 1, where applicable) from
 incomplete evidence (exit 3); a completed calculation or transpose exits 0.
 The CLI uses its own flags and status contract rather than NIST flag aliases.
 
+## Library quick start
+
 ```rust
 use sp_800_90b::most_common_value;
 
 let estimate = most_common_value(&[0, 1, 1, 2, 1, 0]).unwrap();
 println!("{} bits/sample", estimate.min_entropy);
 ```
+
+For most callers, start with `assess_non_iid` or `assess_iid` rather than
+manually combining individual estimators. Use `assess_validation` when you have
+sequential/restart datasets and a submitter bound and want the strict numerical
+workflow. The crate-level API documentation includes a workflow selection table
+and examples. All public entry points are exported at the crate root.
+
+Assessment reports expose `eligible_entropy() -> Option<&Float>` for borrowing
+completed, non-rejected results without cloning or reducing precision. `None`
+means no eligible result; retain the report to inspect warnings, decisions,
+and individual failures. Non-IID `min_entropy` fields can contain partial
+minima, and IID candidate entropy is diagnostic even after rejection. The
+accessor does not waive sample-size warnings or establish source certification.
+For validation, units are bits per raw sample without conditioning and bits per
+delivered output block with conditioning.
+
+`NonIidDatasetAssessment::estimator(kind)` finds a specific estimator without
+relying on vector positions. `IidChecks::rejected()` exposes any observed
+rejection; a false result still requires checking `is_complete()`. Wrapped
+validation, restart and compression errors retain standard `Error::source()`
+chains. `sp_800_90b::Float` re-exports the public MPFR type, so a separate direct
+`rug` dependency is unnecessary just to construct entropy values.
 
 Inputs are slices of byte-valued symbols (0–255), one symbol per byte.
 At least two samples are required. The result includes the sample and mode

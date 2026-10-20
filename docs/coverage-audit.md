@@ -76,12 +76,12 @@ These require preservation in documentation and regression tests rather than aut
 
 ## Evidence and its limits
 
-Latest verification on 2026-10-20, after the six CLI commands were implemented:
+Latest regular-suite verification on 2026-10-20, after the CLI and API usability review:
 
-- `cargo test --all-targets`: **161 passed, 0 failed, 36 opt-in tests ignored**.
-- `cargo test --doc`: **12 passed**.
+- `cargo test --all-targets`: **164 passed, 0 failed, 36 opt-in tests ignored**.
+- `cargo test --doc`: **14 passed**.
 - Clippy with warnings denied, formatting, and whitespace checks: passed.
-- The pinned reference harness separately ran **28 reference tests across seven targets; all passed**. Its qualified status was `passed_with_binary64_baseline_differences`: nine clean baseline datasets and the two documented M1 exceptions.
+- Before the API usability additions, the pinned reference harness separately ran **28 reference tests across seven targets; all passed**. Its qualified status was `passed_with_binary64_baseline_differences`: nine clean baseline datasets and the two documented M1 exceptions.
 - The new full-size restart and validation CLI tests were run separately and passed, including IID success, fallback, conditioning, and rejection. The regular-suite ignored count is not a claim that all opt-in tests were skipped throughout the session or that all 36 were rerun together.
 
 The [latest reference verification](#reference-verification--2026-10-20) records
@@ -411,3 +411,33 @@ built M1 reference; the baseline comparator separately checked fresh NIST result
 against bundled `refdata`. This run does not replace strict extended-precision
 Linux CI, nor add full end-to-end validation parity beyond the harness's existing
 coverage. CLI subprocess coverage remains recorded separately above.
+
+## Public API review — 2026-10-20
+
+The crate-level guide now maps common tasks to public entry points, demonstrates
+report handling and typed conditioning, and explains input representation,
+units, precision and replay limits. All numerical workflows were already public;
+no reference RNG, prepared-data cache, or estimator internals were exposed.
+
+Additive conveniences include a re-export of `rug::Float`, borrowed
+`eligible_entropy()` accessors on assessment/dataset reports, estimator lookup
+by kind, and the public IID rejection predicate. Accessors withhold partial or
+rejected results but do not waive sample-size warnings or certify a source.
+Validation/restart/compression errors now preserve their underlying causes.
+An existing broken rustdoc link was corrected. Existing diagnostic fields and
+entry points remain available. Report mutation is caller-controlled; accessor
+predicates are conveniences for returned reports, not invariant enforcement on
+arbitrarily modified public fields.
+
+CLI JSON remains a separate versioned presentation contract; library consumers
+retain typed high-precision reports. Core algorithms, numerical tolerances and
+seed behavior are unchanged. Final-revision CI and package verification must
+be refreshed after these API additions before publishing.
+
+Verification passed 164 regular tests, fourteen doctests, the opt-in successful
+million-sample IID validation workflow, Clippy, formatting, and whitespace
+checks. Rustdoc builds with warnings denied. Three new public-API integration
+tests exercise partial/constant results, incomplete/rejected IID evidence,
+estimator lookup, the Float re-export, and typed error chains; existing
+validation tests also check eligible entropy on complete and rejected workflows.
+The external reference harness was not rerun for these additive API changes.
