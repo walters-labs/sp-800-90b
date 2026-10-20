@@ -116,3 +116,88 @@ fn invalid_parameters() {
         Err(ConditioningError::PrecisionBudgetExceeded)
     ));
 }
+
+#[test]
+fn truncation_publication_example_and_boundaries() {
+    assert_eq!(vetted_truncation_entropy(8, 6, &f("6"), 256).unwrap(), 4.5);
+    assert_eq!(vetted_truncation_entropy(8, 8, &f("6"), 256).unwrap(), 6);
+    assert_eq!(vetted_truncation_entropy(8, 1, &f("0"), 256).unwrap(), 0);
+    assert_eq!(vetted_truncation_entropy(8, 6, &f("8"), 256).unwrap(), 6);
+    for (original, retained) in [(0, 0), (8, 0), (8, 9)] {
+        assert!(matches!(
+            vetted_truncation_entropy(original, retained, &f("0"), 256),
+            Err(ConditioningError::InvalidTruncation)
+        ));
+    }
+    for h in ["-1", "9", "NaN", "inf"] {
+        assert!(matches!(
+            vetted_truncation_entropy(8, 6, &f(h), 256),
+            Err(ConditioningError::InvalidEntropy)
+        ));
+    }
+    assert!(matches!(
+        vetted_truncation_entropy(8, 6, &f("6"), 63),
+        Err(ConditioningError::InvalidPrecision)
+    ));
+}
+
+#[test]
+fn truncation_rounds_down_at_low_precision() {
+    // A binary-inexact fraction: check the result by exact multiplication at
+    // higher precision, without rounding the expected quotient first.
+    let h = f("1");
+    for retained in [1, 2, 5, 6] {
+        let result = vetted_truncation_entropy(7, retained, &h, 64).unwrap();
+        let scaled_back = Float::with_val(256, &result * 7);
+        assert!(scaled_back <= retained);
+        assert!(Float::with_val(256, Float::with_val(256, retained) - scaled_back) < 1e-17);
+    }
+}
+
+#[test]
+fn conditioning_retains_full_bound_and_scales_only_vetted_output() {
+    let full = calc(128, 64, 128, "64", ConditioningKind::Vetted);
+    let truncated = conditioning_entropy(
+        128,
+        64,
+        128,
+        &f("64"),
+        ConditioningKind::Vetted,
+        ConditioningOptions {
+            retained_output_bits: Some(24),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(truncated.output_bits, 64);
+    assert_eq!(truncated.retained_output_bits, 24);
+    assert_eq!(truncated.output_entropy, full.output_entropy);
+    assert_eq!(truncated.untruncated_min_entropy, full.min_entropy);
+    assert_eq!(
+        truncated.min_entropy,
+        vetted_truncation_entropy(64, 24, &full.min_entropy, 256).unwrap()
+    );
+    // Recomputing Output_Entropy with a smaller n_out is a different operation.
+    assert_ne!(
+        truncated.min_entropy,
+        calc(128, 24, 128, "64", ConditioningKind::Vetted).min_entropy
+    );
+    for retained in [24, 64] {
+        assert!(matches!(
+            conditioning_entropy(
+                128,
+                64,
+                128,
+                &f("64"),
+                ConditioningKind::NonVetted {
+                    assessed_entropy_per_bit: f("0.5")
+                },
+                ConditioningOptions {
+                    retained_output_bits: Some(retained),
+                    ..Default::default()
+                }
+            ),
+            Err(ConditioningError::NonVettedTruncation)
+        ));
+    }
+}

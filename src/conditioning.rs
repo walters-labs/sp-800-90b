@@ -7,6 +7,9 @@ use std::{error::Error, fmt};
 #[derive(Clone, Copy, Debug)]
 pub struct ConditioningOptions {
     pub precision_bits: u32,
+    /// Retained output length after vetted conditioning; None keeps all bits.
+    /// Non-vetted conditioning rejects this option, including a no-op request.
+    pub retained_output_bits: Option<u32>,
     /// Resource bound for automatic working precision (default one mebibit).
     pub max_working_precision: u32,
 }
@@ -14,6 +17,7 @@ impl Default for ConditioningOptions {
     fn default() -> Self {
         Self {
             precision_bits: 256,
+            retained_output_bits: None,
             max_working_precision: 1_048_576,
         }
     }
@@ -29,6 +33,8 @@ pub enum ConditioningKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ConditioningError {
     InvalidDimensions,
+    InvalidTruncation,
+    NonVettedTruncation,
     InvalidEntropy,
     InvalidPerBitEntropy,
     InvalidPrecision,
@@ -44,6 +50,7 @@ impl Error for ConditioningError {}
 #[derive(Clone, Debug)]
 pub struct ConditioningEstimate {
     pub input_bits: u32,
+    /// Full conditioning output length, before optional truncation.
     pub output_bits: u32,
     pub effective_internal_width: u32,
     pub working_precision: u32,
@@ -54,11 +61,18 @@ pub struct ConditioningEstimate {
     pub output_entropy: Float,
     pub non_vetted_cap: Option<Float>,
     pub assessed_output_cap: Option<Float>,
+    /// Bound before optional truncation, in bits per original output block.
+    pub untruncated_min_entropy: Float,
+    /// Delivered output length (equal to output_bits when not truncated).
+    pub retained_output_bits: u32,
+    /// Bound in bits per delivered output block, after optional truncation.
     pub min_entropy: Float,
 }
 /// Calculate a vetted or non-vetted conditioning entropy bound. Inputs are bits
 /// per conditioning block, except h' which is bits per output bit. Zero entropy
 /// is supported explicitly. No automatic claim of full entropy is made.
+/// `output_bits` is always the full length. Optional vetted truncation is
+/// applied afterward; `min_entropy` then refers to the delivered block.
 pub fn conditioning_entropy(
     input_bits: u32,
     output_bits: u32,
@@ -86,6 +100,11 @@ pub fn conditioning_entropy(
     {
         return Err(ConditioningError::InvalidPerBitEntropy);
     }
+    validate_truncation(
+        output_bits,
+        matches!(kind, ConditioningKind::NonVetted { .. }),
+        options.retained_output_bits,
+    )?;
     let precision = input_bits
         .checked_mul(2)
         .and_then(|x| x.checked_add(64))
@@ -156,6 +175,16 @@ pub fn conditioning_entropy(
     if let Some(cap) = &assessed_output_cap {
         min_entropy = min_entropy.min(cap);
     }
+    let untruncated_min_entropy = min_entropy.clone();
+    let retained_output_bits = options.retained_output_bits.unwrap_or(output_bits);
+    if options.retained_output_bits.is_some() {
+        min_entropy = vetted_truncation_entropy(
+            output_bits,
+            retained_output_bits,
+            &min_entropy,
+            options.precision_bits,
+        )?;
+    }
     Ok(ConditioningEstimate {
         input_bits,
         output_bits,
@@ -166,6 +195,58 @@ pub fn conditioning_entropy(
         output_entropy,
         non_vetted_cap,
         assessed_output_cap,
+        untruncated_min_entropy,
+        retained_output_bits,
         min_entropy,
     })
+}
+
+pub(crate) fn validate_truncation(
+    output_bits: u32,
+    non_vetted: bool,
+    retained: Option<u32>,
+) -> Result<(), ConditioningError> {
+    if let Some(bits) = retained {
+        if non_vetted {
+            return Err(ConditioningError::NonVettedTruncation);
+        }
+        if bits == 0 || bits > output_bits {
+            return Err(ConditioningError::InvalidTruncation);
+        }
+    }
+    Ok(())
+}
+
+/// Apply §3.1.5.1.2's proportional entropy rule to a vetted output bound.
+/// The caller asserts vetted status. This is entropy accounting, not a byte
+/// truncation operation or a general rule for arbitrary bitstrings.
+/// Equal lengths are allowed; zero lengths and expansion are rejected.
+///
+/// ```
+/// use rug::Float;
+/// use sp_800_90b::vetted_truncation_entropy;
+/// let result = vetted_truncation_entropy(8, 6, &Float::with_val(256, 6), 256)?;
+/// assert_eq!(result, 4.5);
+/// # Ok::<(), sp_800_90b::ConditioningError>(())
+/// ```
+pub fn vetted_truncation_entropy(
+    output_bits: u32,
+    retained_bits: u32,
+    entropy: &Float,
+    precision_bits: u32,
+) -> Result<Float, ConditioningError> {
+    validate_truncation(output_bits, false, Some(retained_bits))?;
+    if !entropy.is_finite() || entropy < &0 || entropy > &output_bits {
+        return Err(ConditioningError::InvalidEntropy);
+    }
+    if !(64..=float::prec_max()).contains(&precision_bits) {
+        return Err(ConditioningError::InvalidPrecision);
+    }
+    if retained_bits == output_bits {
+        return Ok(Float::with_val_round(precision_bits, entropy, Round::Down).0);
+    }
+    // Multiply before dividing; both operations round down on nonnegative
+    // values, never increasing the credited entropy through rounding.
+    let product = Float::with_val_round(precision_bits, entropy * retained_bits, Round::Down).0;
+    Ok(Float::with_val_round(precision_bits, &product / output_bits, Round::Down).0)
 }

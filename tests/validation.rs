@@ -99,7 +99,9 @@ fn submitter_bound_restart_and_conditioning() {
         output_bits: 2,
         internal_width: 8,
     };
-    let report = assess_validation(&d, &d, &h, Some(c), options()).unwrap();
+    let mut o = options();
+    o.conditioning.retained_output_bits = Some(1);
+    let report = assess_validation(&d, &d, &h, Some(c), o).unwrap();
     assert_eq!(report.decision, ValidationDecision::Complete);
     assert_eq!(report.initial_entropy.as_ref().unwrap(), &h);
     assert_eq!(report.restart.as_ref().unwrap().initial_entropy, h);
@@ -110,9 +112,13 @@ fn submitter_bound_restart_and_conditioning() {
         8,
         &Float::with_val(256, 2),
         ConditioningKind::Vetted,
-        ConditioningOptions::default(),
+        o.conditioning,
     )
     .unwrap();
+    assert_eq!(
+        report.conditioning.as_ref().unwrap().retained_output_bits,
+        1
+    );
     assert_eq!(report.output_entropy.unwrap(), expected.min_entropy);
 }
 #[test]
@@ -238,4 +244,40 @@ fn successful_iid_workflow_uses_one_track() {
     assert!(matches!(report.sequential, Some(ValidationDataset::Iid(_))));
     assert_eq!(report.restart.unwrap().options.mode, RestartMode::Iid);
     assert_eq!(report.output_entropy.unwrap(), 0);
+}
+
+#[test]
+fn invalid_truncation_is_rejected_before_assessment() {
+    let data = vec![0; RESTART_SAMPLES];
+    let mut o = options();
+    o.conditioning.retained_output_bits = Some(1);
+    let h = Float::with_val(256, 0);
+    assert!(matches!(
+        assess_validation(&data, &data, &h, None, o),
+        Err(ValidationError::InvalidConditioningData)
+    ));
+    let c = ValidationConditioning::NonVetted {
+        samples_per_block: 8,
+        output_bits: 2,
+        internal_width: 8,
+        output_data: &[],
+    };
+    assert!(matches!(
+        assess_validation(&data, &data, &h, Some(c), o),
+        Err(ValidationError::Conditioning(
+            ConditioningError::NonVettedTruncation
+        ))
+    ));
+    o.conditioning.retained_output_bits = Some(3);
+    let c = ValidationConditioning::Vetted {
+        samples_per_block: 8,
+        output_bits: 2,
+        internal_width: 8,
+    };
+    assert!(matches!(
+        assess_validation(&data, &data, &h, Some(c), o),
+        Err(ValidationError::Conditioning(
+            ConditioningError::InvalidTruncation
+        ))
+    ));
 }

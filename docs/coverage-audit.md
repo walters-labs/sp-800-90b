@@ -2,7 +2,7 @@
 
 Audit date: 2026-10-19. Scope: the current working tree, including uncommitted files, based on commit `3e1cd16de077bde2f804dc1b5a75cabea7e39b5b`. Reference implementation: local NIST checkout at `87c104d0ed4cbc96103e7b8b38d6f2c7e0a6b289`.
 
-The core numerical engine is broadly implemented. The crate is **not yet a complete implementation of the entire publication or a command-compatible replacement for NIST's package**. The strict numerical validation workflow now applies the submitter bound and coordinates track selection, restart testing, and conditioning. Outstanding computational pieces include the remaining conditioning metadata/truncation support. Ranked symbol reduction is available for unsigned inputs up to 128 bits. Release evidence also needs expansion, especially complete validation-workflow comparisons.
+The core numerical engine is broadly implemented. The crate is **not yet a complete implementation of the entire publication or a command-compatible replacement for NIST's package**. The strict numerical validation workflow now applies the submitter bound and coordinates track selection, restart testing, and conditioning. Outstanding computational pieces include the remaining conditioning metadata and additional-source accounting support. Ranked symbol reduction is available for unsigned inputs up to 128 bits. Release evidence also needs expansion, especially complete validation-workflow comparisons.
 
 This is a coverage and integration audit, not a proof of algorithm correctness or a certification. “Implemented” below means an API and targeted tests exist; the evidence column defines the strength of that claim. No estimator or decision behavior was changed during this audit.
 
@@ -35,7 +35,7 @@ The potential errata correct the binary goodness-of-fit critical value to 27.877
 | §3.1.2 track selection | Partial | IID decisions and both assessment tracks exist | Caller chooses track; no coordinated sequential/restart/conditioned evidence or automatic fallback |
 | §3.1.3 initial entropy | Partial | Literal/bitstring combination exists | No `H_submitter` input or final bound application |
 | §3.1.4 restart | Implemented with validation gaps | `restart.rs`; strict matrix size, simulated cutoff, both estimator tracks, transpose | Positive-entropy IID/non-IID success and non-IID entropy rejection are covered; complete validation-workflow comparison remains separate |
-| §3.1.5 conditioning bounds | Formula implemented | `conditioning.rs`; directed rounding and eight reference cases | Caller supplies widths, h_in, h'; no vetted-component registry, output-truncation helper, or complete orchestration |
+| §3.1.5 conditioning bounds | Formula implemented | `conditioning.rs`; directed rounding and eight reference cases | Caller supplies widths, h_in, h'; vetted-component registry and additional-source accounting remain open; proportional truncation and numerical orchestration are implemented |
 | §3.1.6 additional sources | Caller responsibility | No composition API | No enforcement that credited entropy/input accounting comes from the primary source |
 | §4.4 RCT/APT | Implemented | `health.rs`; all ten Table 2 cutoffs, boundaries, chunking, latching, reset | Only byte-valued alphabets; optional opposite-symbol binary APT extension absent |
 | §4.2–4.3 startup and on-demand operations | Partial | Startup sample counter, readiness, explicit reset | Device output gating, failure recovery, on-demand scheduling, and source-specific tests are not implemented |
@@ -106,7 +106,7 @@ Reference tests depend on environment paths and some existing self-test outputs.
 | Implemented; CI run pending | **G2 Reproducible reference harness and CI** | Pinned isolated builds, automatic adapters, compiler/precision metadata, fresh results and full reference CI are configured. Hosted Linux execution and named regressions for both potential errata remain to be verified/completed. |
 | Implemented | **G3 Restart validation evidence** | Positive-H_I binary/nonbinary non-IID success, sanity-pass/entropy-rejection, and successful IID restart comparisons with deterministic permutation control are implemented. |
 | Done (up to 128 bits) | **G4 Wider symbol support** | `SymbolReduction` preserves sample boundaries and records input/output widths, ranking, and entropy ceiling. Tests cover bit order, width boundaries, invalid rankings and samples, exhaustive 16-bit projection, and downstream NIST reference agreement. |
-| P2 | **G5 Conditioning integration** | Add typed component metadata or validated width presets, a completed-assessment-to-h' bridge, explicit input-block entropy accounting, and the vetted output-truncation adjustment. Test that per-bit and per-sample quantities cannot be confused. |
+| P2 | **G5 Conditioning integration** | Add typed component metadata or validated width presets, a completed-assessment-to-h' bridge, explicit input-block entropy accounting, with richer additional-source accounting. Vetted output truncation is implemented; retain tests distinguishing per-bit, per-sample, and per-output-block quantities. |
 | P2 | **G6 CLI and stable reports** | Implement supported subcommands, file subsets, explicit pass/reject/incomplete statuses and exit codes, precision-preserving JSON, dataset hashes, seed/provenance records, and transpose output. Publish which flags match NIST. |
 | P2 | **G7 Numerical and robustness coverage** | Add independent golden vectors, rounding-bound tests for conditioning, tail minimality/boundary checks for health cutoffs, and property/fuzz tests for preprocessing and state machines. Benchmark time and peak memory on representative million-sample inputs. |
 | P2 | **G8 Release preparation** | Establish minimum Rust/platform support, review public API stability, add package metadata and reproducible examples, and inventory redistribution notices. Cargo metadata identifies rug and gmp-mpfr-sys as LGPL-3.0+; the crate's MIT declaration is not a complete dependency notice inventory. |
@@ -120,7 +120,7 @@ Physical noise models, restart procedures, environmental characterization, colle
 
 ## Validation workflow follow-up
 
-The G1 implementation adds deterministic integration tests for submitter bounds, conditioning units, eligibility failures, restart rejection, incomplete IID evidence and IID fallback. The opt-in full-size IID success regression passed on 2026-10-20 in 46.34 seconds after internal restart evidence reuse and test-profile optimization of libbz2-rs-sys. It verifies three permutation assessments and reuse of both restart checks. This is a deterministic synthetic fixture, not reference parity. These extend the audit snapshot above; they do not establish reference parity for the complete workflow. G5 remains open for vetted algorithm metadata, truncation, and richer source-input accounting.
+The G1 implementation adds deterministic integration tests for submitter bounds, conditioning units, eligibility failures, restart rejection, incomplete IID evidence and IID fallback. The opt-in full-size IID success regression passed on 2026-10-20 in 46.34 seconds after internal restart evidence reuse and test-profile optimization of libbz2-rs-sys. It verifies three permutation assessments and reuse of both restart checks. This is a deterministic synthetic fixture, not reference parity. These extend the audit snapshot above; they do not establish reference parity for the complete workflow. G5 remains open for vetted algorithm metadata and richer source-input accounting; proportional vetted-output truncation is now implemented.
 
 The workflow now exposes stage timings and live permutation counts/active statistics through `assess_validation_with_progress`. Low-level IID and permutation APIs have corresponding observer variants. Regression tests verify unchanged permutation tail counts/results and preservation of literal MCV entropy in reused restart evidence.
 
@@ -215,3 +215,22 @@ reference comparison passed in 20.11 seconds: scattered 32-bit inputs reduced
 exactly to NIST's four-bit fixture, and all non-IID estimates and the combined
 result matched its recorded self-test output. This checks assessment integration;
 NIST does not expose a ranked wide-symbol reducer for direct conversion parity.
+
+
+## Vetted conditioning truncation
+
+`ConditioningOptions::retained_output_bits` applies §3.1.5.1.2 proportional
+entropy scaling after the full-output bound, with downward MPFR rounding.
+Reports retain the full length and bound and expose the delivered length and
+final entropy. `vetted_truncation_entropy` also supports explicit accounting
+from a caller-supplied vetted bound. Non-vetted requests are rejected under
+§3.1.5.2. The validation coordinator checks configurations before assessment
+and uses the final delivered-block bound. Tests cover the publication's
+6-to-4.5-bit example, invalid inputs, non-vetted rejection, conservative rounding,
+report semantics, and validation integration. The NIST CLI has no corresponding
+truncation flag; existing untruncated reference comparisons remain applicable.
+
+Local verification on 2026-10-20 passed all 138 regular tests, ten documentation
+examples, the eight existing conditioning reference cases, Clippy, formatting,
+and whitespace checks. The new truncation rule is checked against the publication
+example and directed-rounding invariants, not a nonexistent NIST CLI option.

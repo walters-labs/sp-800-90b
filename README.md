@@ -1059,3 +1059,40 @@ specification examples and independent expected bit selections. An opt-in test
 in `non_iid_reference` embeds NIST's four-bit fixture in scattered 32-bit
 positions, reduces it, and compares the complete assessment with NIST's recorded
 results. It runs automatically in the reference harness.
+
+
+### Truncating vetted conditioning output
+
+Set `ConditioningOptions::retained_output_bits` to the delivered length after
+conditioning. The `output_bits` argument still describes the full conditioning
+output. The API first calculates the full bound, then scales it by
+`retained_output_bits / output_bits`, rounding downward. It does not rerun
+`Output_Entropy` with a shorter output length.
+
+```rust
+use rug::Float;
+use sp_800_90b::{conditioning_entropy, ConditioningKind, ConditioningOptions};
+let estimate = conditioning_entropy(
+    512, 256, 256, &Float::with_val(256, 400), ConditioningKind::Vetted,
+    ConditioningOptions { retained_output_bits: Some(128), ..Default::default() },
+)?;
+assert_eq!(estimate.output_bits, 256);
+assert_eq!(estimate.retained_output_bits, 128);
+// estimate.untruncated_min_entropy retains the full-output bound.
+// estimate.min_entropy is in bits per delivered 128-bit block.
+# Ok::<(), sp_800_90b::ConditioningError>(())
+```
+
+The standalone `vetted_truncation_entropy` helper implements the same accounting
+rule: 6 bits of entropy in an 8-bit output becomes 4.5 bits when 6 output bits
+are retained (SP 800-90B §3.1.5.1.2). The caller asserts vetted status. This is
+not a general entropy rule for truncating arbitrary data, nor does it transform
+output bytes. Zero lengths and expansion are rejected. `None` leaves output
+unchanged; equal lengths are allowed for vetted components.
+
+Non-vetted conditioning rejects any explicit truncation request, as required
+by §3.1.5.2; use `None` for unmodified output. The strict validation workflow
+accepts the same option through `ValidationOptions::conditioning` and reports
+entropy per delivered block. Invalid truncation configurations are rejected
+before statistical testing. Vetted algorithm metadata/parameter validation and
+additional-source input accounting remain separate work.

@@ -94,7 +94,7 @@ pub struct ValidationAssessment {
     pub decision: ValidationDecision,
     /// Bits per raw sample. Available only when the entire requested workflow completes.
     pub raw_entropy: Option<Float>,
-    /// Bits per output block if conditioned; otherwise bits per raw sample.
+    /// Bits per delivered output block (after truncation) if conditioned; otherwise bits per raw sample.
     pub output_entropy: Option<Float>,
 }
 
@@ -299,6 +299,16 @@ pub fn assess_validation_with_progress(
         return Err(ValidationError::Conditioning(
             ConditioningError::InvalidPrecision,
         ));
+    }
+    if let Some((_, out, _)) = dimensions {
+        crate::conditioning::validate_truncation(
+            out,
+            matches!(conditioning, Some(ValidationConditioning::NonVetted { .. })),
+            o.conditioning.retained_output_bits,
+        )
+        .map_err(ValidationError::Conditioning)?;
+    } else if o.conditioning.retained_output_bits.is_some() {
+        return Err(ValidationError::InvalidConditioningData);
     }
     let output_data = match conditioning {
         Some(ValidationConditioning::NonVetted {
