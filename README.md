@@ -8,6 +8,27 @@ validation or certification.
 
 See the [coverage audit](docs/coverage-audit.md) for implemented scope, reference-test limits, intentional differences, and remaining work.
 
+## Building and platform support
+
+The declared minimum Rust version is **1.97.1**, the version used for current
+verification. This is a conservative tested baseline; older compiler support
+has not been established. Local checks run on Apple Silicon macOS, and the
+reference CI targets Ubuntu 24.04 x86-64. Windows and other targets have not
+been verified for this crate.
+
+MPFR arithmetic uses `rug` and `gmp-mpfr-sys`, which build native libraries.
+On macOS, install the Xcode Command Line Tools; on GNU/Linux, provide a C
+compiler, `make`, `m4`, and `diffutils`. The native dependency does not support
+build paths containing spaces. Building the external NIST reference tools
+requires additional dependencies described in the reference-harness section.
+
+The project's source is MIT licensed. Dependency licenses, including the
+LGPL-licensed arithmetic dependencies, are listed in
+[THIRD_PARTY.md](THIRD_PARTY.md). That inventory does not replace upstream
+license texts or constitute a linked-binary redistribution bundle.
+
+## Command-line overview
+
 The installed binary supports `non-iid`, `iid`, and `restart` assessments, `conditioning` calculations, the end-to-end `validate` workflow, and a `transpose` utility:
 
 ```sh
