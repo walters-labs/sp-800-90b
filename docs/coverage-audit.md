@@ -2,7 +2,7 @@
 
 Audit date: 2026-10-19. Scope: the current working tree, including uncommitted files, based on commit `3e1cd16de077bde2f804dc1b5a75cabea7e39b5b`. Reference implementation: local NIST checkout at `87c104d0ed4cbc96103e7b8b38d6f2c7e0a6b289`.
 
-The core numerical engine is broadly implemented. The crate is **not yet a complete implementation of the entire publication or a command-compatible replacement for NIST's package**. The strict numerical validation workflow now applies the submitter bound and coordinates track selection, restart testing, and conditioning. Outstanding computational pieces include wider-symbol preprocessing and the remaining conditioning metadata/truncation support. Release evidence also needs expansion, especially successful IID restart runs and automated reference testing.
+The core numerical engine is broadly implemented. The crate is **not yet a complete implementation of the entire publication or a command-compatible replacement for NIST's package**. The strict numerical validation workflow now applies the submitter bound and coordinates track selection, restart testing, and conditioning. Outstanding computational pieces include wider-symbol preprocessing and the remaining conditioning metadata/truncation support. Release evidence also needs expansion, especially complete validation-workflow comparisons.
 
 This is a coverage and integration audit, not a proof of algorithm correctness or a certification. “Implemented” below means an API and targeted tests exist; the evidence column defines the strength of that claim. No estimator or decision behavior was changed during this audit.
 
@@ -34,7 +34,7 @@ The potential errata correct the binary goodness-of-fit critical value to 27.877
 | §6.1 and §6.2 assessment | Implemented for byte-valued data | `assess_iid`, `assess_non_iid`; initial/conditioned modes, width, raw bit expansion, truncation | Strict numerical coordinator now available through `assess_validation` |
 | §3.1.2 track selection | Partial | IID decisions and both assessment tracks exist | Caller chooses track; no coordinated sequential/restart/conditioned evidence or automatic fallback |
 | §3.1.3 initial entropy | Partial | Literal/bitstring combination exists | No `H_submitter` input or final bound application |
-| §3.1.4 restart | Implemented with validation gaps | `restart.rs`; strict matrix size, simulated cutoff, both estimator tracks, transpose | Full reference test is one binary non-IID dataset at H_I=0; successful full IID restart reference parity not tested |
+| §3.1.4 restart | Implemented with validation gaps | `restart.rs`; strict matrix size, simulated cutoff, both estimator tracks, transpose | Positive-entropy IID/non-IID success and non-IID entropy rejection are covered; complete validation-workflow comparison remains separate |
 | §3.1.5 conditioning bounds | Formula implemented | `conditioning.rs`; directed rounding and eight reference cases | Caller supplies widths, h_in, h'; no vetted-component registry, output-truncation helper, or complete orchestration |
 | §3.1.6 additional sources | Caller responsibility | No composition API | No enforcement that credited entropy/input accounting comes from the primary source |
 | §4.4 RCT/APT | Implemented | `health.rs`; all ten Table 2 cutoffs, boundaries, chunking, latching, reset | Only byte-valued alphabets; optional opposite-symbol binary APT extension absent |
@@ -91,7 +91,7 @@ The ignored tests are opt-in reference or expensive tests, not unexplained test 
 | `chi_square_reference.rs` | Degrees of freedom, scores, probabilities and decisions on eleven datasets | Near-threshold coverage for every grouping branch |
 | `permutation_reference.rs` | Original statistics on eleven datasets; seeded counters on three 4096-sample prefixes | Full-million-sample seeded suite parity or all seed distributions |
 | `iid_reference.rs` | LRS on ten datasets; entropy/chi-square/LRS-length comparison in both modes on one 4096-sample prefix | Combined test does not compare the native permutation verdict; native seed is uncontrolled |
-| `restart_reference.rs` | Million-sample non-IID estimates on one binary fixture at H_I=0; IID incomplete-check propagation with an intentionally invalid permutation seed | Successful full IID restart, nonbinary non-IID restart parity, positive-H_I end-to-end validation |
+| `restart_reference.rs` | Binary and four-bit non-IID restart cases with positive H_I; sanity-pass/entropy-rejection case; exact seeded sanity cutoffs; H_I=0 baseline, seeded successful IID restart and IID incomplete-check propagation | Broader source fixtures |
 | Restart simulator tests | Seeded 10,000-trial quantile parity at five H values; full five-million-trial sanity rejection | Distribution of empirical cutoff variation or positive-H_I successful reference assessment |
 | `conditioning_reference.rs` | Eight vetted/non-vetted final outputs within tolerance | Full parameter domain, all near-full-entropy regimes or a formal rounding proof |
 | `health.rs` tests | Published cutoff examples and streaming semantics | Device fault injection, operational failure response or arbitrary-parameter interval certification |
@@ -104,7 +104,7 @@ Reference tests depend on environment paths and some existing self-test outputs.
 | --- | --- | --- |
 | Done | **G1 Validation workflow and submitter bound** | `assess_validation` accepts H_submitter, checks dataset eligibility, coordinates one IID/non-IID track, restart and conditioning, and withholds final entropy on incomplete or rejected evidence. Exploratory APIs remain available; integration tests cover bounds, units and decisions. |
 | Implemented; CI run pending | **G2 Reproducible reference harness and CI** | Pinned isolated builds, automatic adapters, compiler/precision metadata, fresh results and full reference CI are configured. Hosted Linux execution and named regressions for both potential errata remain to be verified/completed. |
-| P1 | **G3 Restart validation evidence** | Add positive-H_I successful and failing end-to-end cases, nonbinary restart fixtures, and a successful IID restart with deterministic permutation control. Preserve strict rejection semantics. |
+| Implemented | **G3 Restart validation evidence** | Positive-H_I binary/nonbinary non-IID success, sanity-pass/entropy-rejection, and successful IID restart comparisons with deterministic permutation control are implemented. |
 | P2 | **G4 Wider symbol support** | Add a §6.4 preprocessing API for caller-specified ranked bit positions, preserving sample boundaries and entropy accounting. Test >8-bit samples, invalid rankings, bit order, and effective entropy ceilings. Do not infer a physical ranking from frequency alone. |
 | P2 | **G5 Conditioning integration** | Add typed component metadata or validated width presets, a completed-assessment-to-h' bridge, explicit input-block entropy accounting, and the vetted output-truncation adjustment. Test that per-bit and per-sample quantities cannot be confused. |
 | P2 | **G6 CLI and stable reports** | Implement supported subcommands, file subsets, explicit pass/reject/incomplete statuses and exit codes, precision-preserving JSON, dataset hashes, seed/provenance records, and transpose output. Publish which flags match NIST. |
@@ -112,7 +112,7 @@ Reference tests depend on environment paths and some existing self-test outputs.
 | P2 | **G8 Release preparation** | Establish minimum Rust/platform support, review public API stability, add package metadata and reproducible examples, and inventory redistribution notices. Cargo metadata identifies rug and gmp-mpfr-sys as LGPL-3.0+; the crate's MIT declaration is not a complete dependency notice inventory. |
 | Scope decision | **G9 Operational source integration** | If this becomes a device-facing source library, design GetNoise/GetEntropy/HealthTest interfaces, startup withholding, on-demand operation and recovery. Otherwise document those responsibilities as outside the assessment crate. |
 
-G1 is implemented by `assess_validation` for byte-valued raw samples and unpacked conditioned output bits. It enforces dataset sizes, consistent track selection, H_submitter, complete evidence, restart acceptance, and conditioning block units. G2 now has a pinned build/comparison harness and Linux CI configuration (hosted CI execution is still pending); G3 should precede a claim that the full restart workflow is reference-validated. A unified CLI is useful after the report semantics are stable.
+G1 is implemented by `assess_validation` for byte-valued raw samples and unpacked conditioned output bits. It enforces dataset sizes, consistent track selection, H_submitter, complete evidence, restart acceptance, and conditioning block units. G2 now has a pinned build/comparison harness and Linux CI configuration (the user reports a successful hosted run in 15 minutes 9 seconds); G3 now includes successful IID and non-IID restart comparisons. A unified CLI is useful after the report semantics are stable.
 
 ## Requirements that remain external
 
@@ -138,11 +138,64 @@ completed hosted CI run.
 
 The harness adds exact fixed-seed comparison of the positive-H_I=1 restart sanity
 cutoff over five million rounds, including the resulting sanity rejection on a
-structured restart matrix. This expands G3 evidence but does not replace the
-remaining nonbinary and successful positive-entropy full-workflow parity cases.
+structured restart matrix. Successful IID restart parity is covered by the seeded CLI adapter described below. Non-IID coverage
+is expanded further by the cases below.
 
 The complete local M1 harness run on 2026-10-20 passed all 22 reference-suite
 tests. NIST's own baseline comparisons had nine clean passes and two datasets
 with the eight explicitly allowed binary64 differences. The resulting status
 was `passed_with_binary64_baseline_differences`; this is not a clean upstream
 self-test pass or evidence of a hosted Linux CI run.
+
+## Positive-entropy restart coverage
+
+Three non-IID end-to-end reference cases now exercise the pinned NIST CLI and
+Rust against identical million-sample matrices: binary truerand at H_I=0.5,
+four-bit truerand at H_I=2, and a generated checkerboard at H_I=0.5. The first
+two require successful validation with positive awarded entropy. The last
+requires successful sanity checking followed specifically by entropy-threshold
+rejection, with no awarded entropy. All cases compare complete row/column
+estimates (1e-6 for six-decimal CLI summaries), maximum symbol frequency, final
+decisions and the awarded minimum or its absence.
+
+NIST's CLI retains its OS-seeded sanity simulation. These cases use comfortable
+frequency margins and compare the actual sanity decisions rather than requiring
+identical random cutoffs. An additional call to the unmodified simulator adapter
+uses seed [1, 2, 3, 4] and five million rounds, allowing exact cutoff comparison
+with Rust. The fixtures test numerical behavior, not physical restart provenance.
+The existing harness discovers these tests within `restart_reference`; no new
+environment variables or adapter modifications are required.
+
+Local verification on 2026-10-20 passed all three new cases plus the existing
+positive-entropy cutoff regression (four tests, 189.23 seconds). The new cases'
+maximum frequencies and seeded cutoffs were 556/769 (binary success), 96/316
+(four-bit success), and 500/769 (entropy rejection after sanity passed). In this
+run the independently seeded CLI cutoffs happened to match too; that coincidence
+is not an assertion or reproducibility guarantee.
+
+
+## Successful IID restart comparison
+
+The seeded restart adapter now also invokes NIST's original CLI workflow via
+`--cli`. Only the OS seed boundary is replaced with [1, 2, 3, 4], and OpenMP is
+restricted to one thread. The simulator, IID tests, and CLI decision logic stay
+unchanged. The original cutoff-only adapter interface remains available.
+
+The new `positive_iid_restart_matches_reference` case uses the bundled million-
+sample four-bit fixture and H_I=2. It requires both row and column chi-square,
+LRS, and permutation checks to complete and pass, in addition to sanity and final
+validation. NIST's success banner alone is insufficient: the test separately
+requires its three combined IID pass reports. Cutoffs and maximum frequencies
+are compared exactly; row/column and awarded entropy use the CLI's six-decimal
+precision (1e-6 tolerance). A single seeded reference invocation supplies both
+cutoff and full-workflow evidence, avoiding a duplicate reference simulation.
+
+The user reported that the previously pushed Linux CI suite passed in 15 minutes
+9 seconds. That run predates this new IID case; its hosted execution is pending.
+
+Local verification on 2026-10-20 passed the successful IID comparison in 74.96
+seconds (while another reference regression ran concurrently). Both row and
+column entropy estimates were 3.97119433672960964 bits/sample in Rust, matching
+NIST's printed 3.971194; both implementations awarded 2 bits/sample. Maximum
+frequency was 96 and the exact seeded sanity cutoff was 316. The existing
+cutoff-only adapter regression also passed at five entropy levels.

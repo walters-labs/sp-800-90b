@@ -980,3 +980,38 @@ counts, decisions, and restart simulation cutoffs are compared exactly.
 Existing documented differences (including the skipped reference IID-LRS
 underflow fixture and Rust's stricter failure handling) remain in the
 [coverage audit](docs/coverage-audit.md).
+
+The restart reference suite includes three additional non-IID end-to-end cases:
+
+- Binary `truerand_1bit.bin` with `H_I = 0.5` bits per sample: successful validation.
+- Four-bit `truerand_4bit.bin` with `H_I = 2` bits per sample: successful validation.
+- A generated 1000×1000 checkerboard with `H_I = 0.5`: balanced row/column
+  frequencies pass sanity, but predictability causes entropy-threshold rejection.
+
+Each compares row and column entropy, sanity outcomes, final decisions, and
+awarded entropy (or its absence). CLI summaries use a `1e-6` tolerance because
+NIST prints six decimal places. Since the CLI seeds its Monte Carlo simulation
+from the OS, its numerical cutoff is not assumed to match Rust's fixed-seed
+cutoff. Exact cutoff parity is checked separately against the simulator adapter
+with seed `[1, 2, 3, 4]` and five million rounds. These fixtures exercise the
+software; reshaping bundled bytes is not evidence of physical source restarts.
+
+The harness includes these tests automatically. To run just the positive-entropy
+restart cases using a previously built harness snapshot:
+
+```sh
+NIST_REFERENCE_DIR="<run-directory>/nist" \
+NIST_RESTART_REFERENCE="<run-directory>/restart" \
+cargo test --test restart_reference positive_ -- --ignored --nocapture --test-threads=1
+```
+
+
+The restart suite also includes `positive_iid_restart_matches_reference`, a
+successful million-sample four-bit IID restart at H_I=2. It requires all row and
+column IID checks to pass and compares the exact sanity cutoff, maximum count,
+and the row, column, and awarded entropy. The rebuilt restart adapter's `--cli`
+mode invokes NIST's original workflow with seed [1, 2, 3, 4] and one OpenMP
+thread, making both sanity and permutation testing reproducible. This case uses
+one reference simulation rather than separately rerunning the cutoff adapter.
+Use the same environment variables as above and select
+`positive_iid_restart_matches_reference` to run it alone.
