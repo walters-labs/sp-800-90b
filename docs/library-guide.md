@@ -813,12 +813,12 @@ assert_eq!(config.adaptive_proportion(), 589);
 assert_eq!(config.window_size(), 1024);
 ```
 
-Carry the three integer parameters into firmware. The following dependency uses
-the Git source until the first crates.io release:
+Carry the three integer parameters into firmware. Add the published crate with
+default features disabled:
 
 ```toml
 [dependencies]
-sp-800-90b = { git = "https://github.com/walters-labs/sp-800-90b", default-features = false }
+sp-800-90b = { version = "0.1", default-features = false }
 ```
 
 Firmware can construct both the configuration and initial monitor in a const
