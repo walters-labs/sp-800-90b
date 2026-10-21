@@ -42,20 +42,51 @@ pub fn compression_estimate(samples: &[u8]) -> Result<CompressionEstimate, Estim
     compression_estimate_with_options(samples, CompressionOptions::default())
 }
 
-fn distances(samples: &[u8], d: usize) -> Vec<usize> {
+fn distances(samples: &[u8], d: usize) -> impl Iterator<Item = usize> + '_ {
     let mut last_seen = [0usize; 64];
-    let mut result = Vec::with_capacity(samples.len() / 6 - d);
-    for (index, bits) in samples.chunks_exact(6).enumerate() {
-        let symbol = bits
-            .iter()
-            .fold(0usize, |value, &bit| value * 2 + usize::from(bit));
-        let position = index + 1;
-        if index >= d {
-            result.push(position - last_seen[symbol]);
-        }
-        last_seen[symbol] = position;
+    samples
+        .chunks_exact(6)
+        .enumerate()
+        .filter_map(move |(index, bits)| {
+            let symbol = bits
+                .iter()
+                .fold(0usize, |value, &bit| value * 2 + usize::from(bit));
+            let position = index + 1;
+            let distance = position - last_seen[symbol];
+            last_seen[symbol] = position;
+            (index >= d).then_some(distance)
+        })
+}
+
+// Bound the cache independently of input size. Rare large distances still use
+// MPFR at the requested precision, without allocating up to their index.
+fn distance_log(distance: usize, precision: u32, cache: &mut [Option<Float>]) -> Float {
+    match cache.get_mut(distance) {
+        Some(slot) => slot
+            .get_or_insert_with(|| Float::with_val(precision, distance).log2())
+            .clone(),
+        None => Float::with_val(precision, distance).log2(),
     }
-    result
+}
+
+fn distance_moments(samples: &[u8], d: usize, prec: u32) -> (Float, Float) {
+    let n = samples.len() / 6;
+    let v = n - d;
+    let mut cache = vec![None; (n + 1).min(4096)];
+    let mut mean = Float::with_val(prec, 0);
+    // Keep the original observation order and rounding of every addition.
+    for distance in distances(samples, d) {
+        mean += distance_log(distance, prec, &mut cache);
+    }
+    mean /= v;
+    // This is sum(log(D)^2)/(v-1) - mean^2, not sample variance.
+    let mut variance = Float::with_val(prec, &mean * &mean);
+    for distance in distances(samples, d) {
+        let delta = Float::with_val(prec, distance_log(distance, prec, &mut cache) - &mean);
+        variance += Float::with_val(prec, &delta * &delta);
+    }
+    variance /= v - 1;
+    (mean, variance)
 }
 
 // Shared log cache avoids recomputing MPFR logarithms at every bisection step.
@@ -164,23 +195,7 @@ pub fn compression_estimate_with_options(
     }
     let v = n - d;
     let mut model = Model::new(prec, d, n);
-    let logs: Vec<Float> = distances(samples, d)
-        .into_iter()
-        .map(|x| Float::with_val(prec, x).log2())
-        .collect();
-    let mut mean = Float::with_val(prec, 0);
-    for x in &logs {
-        mean += x;
-    }
-    mean /= v;
-    // Algebraically sum(log(D)^2)/(v-1) - mean^2, using centered terms
-    // to avoid cancellation. This is deliberately NOT ordinary sample variance.
-    let mut variance = Float::with_val(prec, &mean * &mean);
-    for x in &logs {
-        let delta = Float::with_val(prec, x - &mean);
-        variance += Float::with_val(prec, &delta * &delta);
-    }
-    variance /= v - 1;
+    let (mean, variance) = distance_moments(samples, d, prec);
     let mut standard_deviation = variance.sqrt();
     let c = match options.confidence_constant {
         ConfidenceConstant::NistReference => Float::with_val(prec, 0.5907_f64),
@@ -242,6 +257,36 @@ pub fn compression_estimate_with_options(
 mod tests {
     use super::*;
     #[test]
+    fn cached_moments_preserve_uncached_rounding_and_large_distances() {
+        let mut blocks: Vec<u8> = (0..64).cycle().take(512).collect();
+        blocks.extend(vec![0; 5000]);
+        blocks.extend([63, 0, 63, 1]);
+        let bits: Vec<_> = blocks
+            .iter()
+            .flat_map(|&x| (0..6).rev().map(move |bit| (x >> bit) & 1))
+            .collect();
+        assert!(distances(&bits, 4).any(|d| d >= 4096));
+        for prec in [64, 256, 512] {
+            // The previous implementation stored one MPFR log per observation.
+            let logs: Vec<_> = distances(&bits, 4)
+                .map(|d| Float::with_val(prec, d).log2())
+                .collect();
+            let mut mean = Float::with_val(prec, 0);
+            for log in &logs {
+                mean += log;
+            }
+            mean /= logs.len();
+            let mut variance = Float::with_val(prec, &mean * &mean);
+            for log in &logs {
+                let delta = Float::with_val(prec, log - &mean);
+                variance += Float::with_val(prec, &delta * &delta);
+            }
+            variance /= logs.len() - 1;
+            assert_eq!(distance_moments(&bits, 4, prec), (mean, variance));
+        }
+    }
+
+    #[test]
     fn g_matches_literal_double_sum() {
         for (d, n) in [(1, 3), (4, 8), (7, 12), (4, 300)] {
             for value in [0.0, 1e-10, 1.0 / 64.0, 0.3, 0.9, 1.0] {
@@ -278,6 +323,6 @@ mod tests {
             .iter()
             .flat_map(|x| (0..6).rev().map(move |i| (x >> i) & 1))
             .collect();
-        assert_eq!(distances(&bits, 3), [2, 1, 6, 1]);
+        assert_eq!(distances(&bits, 3).collect::<Vec<_>>(), [2, 1, 6, 1]);
     }
 }

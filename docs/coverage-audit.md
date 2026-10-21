@@ -1,15 +1,16 @@
 # SP 800-90B coverage audit
 
-Updated: 2026-10-20 (original audit: 2026-10-19). Implementation scope: published
+Updated: 2026-10-20 (original audit: 2026-10-19). Baseline implementation: published
 release `v0.1.0`, commit
 [`0b4831660435445814c07211724ea7321a980959`](https://github.com/walters-labs/sp-800-90b/commit/0b4831660435445814c07211724ea7321a980959).
 Reference implementation: pinned NIST revision
-`87c104d0ed4cbc96103e7b8b38d6f2c7e0a6b289`. This post-release documentation update
-records the evidence for that implementation; it changes no numerical behavior.
+`87c104d0ed4cbc96103e7b8b38d6f2c7e0a6b289`. Release evidence applies to that
+revision. Post-release performance changes are recorded separately below and
+in [performance](performance.md).
 
 The core numerical engine is broadly implemented. The crate is **not yet a complete implementation of the entire publication or a command-compatible replacement for NIST's package**. The strict numerical validation workflow now applies the submitter bound and coordinates track selection, restart testing, and conditioning. Additional-source accounting is implemented for concatenated conditioning inputs. Ranked symbol reduction is available for unsigned inputs up to 128 bits. Release evidence also needs expansion, especially complete validation-workflow comparisons.
 
-This is a coverage and integration audit, not a proof of algorithm correctness or a certification. “Implemented” below means an API and targeted tests exist; the evidence column defines the strength of that claim. The current-status tables incorporate the implementation follow-ups below. Earlier verification counts are historical snapshots; the latest evidence is summarized in “Evidence and its limits.” This documentation reconciliation changes no estimator or decision behavior.
+This is a coverage and integration audit, not a proof of algorithm correctness or a certification. “Implemented” below means an API and targeted tests exist; the evidence column defines the strength of that claim. The current-status tables incorporate the implementation follow-ups below. Earlier verification counts are historical snapshots; the latest evidence is summarized in “Evidence and its limits.”
 
 ## Baselines
 
@@ -139,6 +140,37 @@ Rust-to-`refdata` comparison. Passing these fixtures does not establish complete
 validation-workflow parity or source certification. The bare-metal check verifies
 compilation, not execution on a device.
 
+### Post-v0.1.0 performance verification — 2026-10-20
+
+Combined non-IID assessments now share t-Tuple/LRS suffix counts, compression
+caches recurring distance logarithms, and binary MultiMMC/LZ78Y use direct
+context tables. These changes preserve the public API and 256-bit MPFR default.
+They are subsequent development changes, not part of the published release.
+
+Local M1 verification passed 182 regular tests, 16 doctests, 10 minimal-feature
+tests, formatting and Clippy with warnings denied. Rust 1.85.0 all-target
+checks passed with default features and with `assessment` alone. Four new
+regressions cover exhaustive binary/general predictor equivalence, cached
+versus uncached MPFR moments (including distances beyond the cache), and shared
+versus standalone tuple results and errors. Existing independent chronological
+predictor oracles also pass.
+
+The 10 individual-estimator and 3 combined non-IID reference tests passed
+against the existing pinned M1 snapshot
+`target/reference-runs/20261020T175029Z-8835/nist`, covering all eleven fixtures
+and the mode/width/truncation and symbol-reduction cases. This reused the
+snapshot's reference outputs and executable; it was not a new full harness
+rebuild or a hosted Linux run. The three performance fixtures additionally
+ran fresh NIST CLI comparisons in the timed experiment.
+
+[Performance measurements](performance.md) record three measured repetitions
+after warm-up on one-, four- and eight-bit million-sample fixtures. Rust JSON
+results were exactly unchanged between the saved baseline and optimized
+executables. Median eight-bit runtime fell from 26.24 s to 7.86 s, and peak RSS
+from 678.8 MiB to 562.3 MiB. Measurement logs and check output are local ignored
+artifacts under `target/benchmarks/optimization/`. Broader workloads and other
+platforms remain unmeasured by this experiment.
+
 ### Local supporting checks
 
 Local verification also passed on 2026-10-20, with Rust 1.85.0 and the locally
@@ -199,7 +231,7 @@ records the strict Linux result. The following limits come from the test asserti
 | `conditioning_reference.rs` | Eight vetted/non-vetted outputs and nine typed-component dimension cases within tolerance | Full parameter domain, all near-full-entropy regimes or a formal rounding proof |
 | `health.rs` / `health_core.rs` tests | Published cutoff examples, exported parameters, streaming semantics in full/minimal builds, integer parameter validation and counter boundaries | Device fault injection, operational failure response or arbitrary-parameter interval certification |
 
-Individual reference tests can be run against caller-supplied environment paths. The harness provides stronger provenance: it exports the pinned source, rebuilds tools/adapters, generates fresh fixture results, and records hashes, compiler flags, precision and timings. The successful Linux release CI and local Apple Silicon checks do not constitute a comprehensive cross-platform test matrix. Dedicated benchmark and fuzz suites remain open, as does complete validation-workflow reference parity.
+Individual reference tests can be run against caller-supplied environment paths. The harness provides stronger provenance: it exports the pinned source, rebuilds tools/adapters, generates fresh fixture results, and records hashes, compiler flags, precision and timings. The successful Linux release CI and local Apple Silicon checks do not constitute a comprehensive cross-platform test matrix. Local million-sample non-IID timing and memory measurements are recorded in [performance](performance.md); broader benchmark and fuzz suites remain open, as does complete validation-workflow reference parity.
 
 ## Prioritized completion work
 
@@ -211,14 +243,14 @@ Individual reference tests can be run against caller-supplied environment paths.
 | Done (up to 128 bits) | **G4 Wider symbol support** | `SymbolReduction` preserves sample boundaries and records input/output widths, ranking, and entropy ceiling. Tests cover bit order, width boundaries, invalid rankings and samples, exhaustive 16-bit projection, and downstream NIST reference agreement. |
 | Implemented | **G5 Conditioning integration** | Typed Table 1 dimensions, vetted truncation, and strict assessment integration are implemented. Explicit additional-source accounting is implemented. |
 | Implemented (schema version 1) | **G6 CLI and reports** | All six commands expose documented flags and applicable status/exit, decimal-string entropy, hash and seed fields. Non-IID/IID/restart/transpose support selection; validate reads full files and conditioning accepts numerical inputs. Full intermediate estimator diagnostics remain API-only; NIST flag aliases are intentionally absent. |
-| P2 | **G7 Numerical and robustness coverage** | Named regressions cover both potential errata as described above. Add independent golden vectors, rounding-bound tests for conditioning, tail minimality/boundary checks for health cutoffs, and property/fuzz tests for preprocessing and state machines. Benchmark time and peak memory on representative million-sample inputs. |
+| P2 | **G7 Numerical and robustness coverage** | Named regressions cover both potential errata as described above. Add independent golden vectors, rounding-bound tests for conditioning, tail minimality/boundary checks for health cutoffs, and property/fuzz tests for preprocessing and state machines. Local non-IID time and peak-memory measurements now cover three million-sample fixtures; extend to other workloads and platforms. |
 | Published v0.1.0 | **G8 Release preparation** | The API, NIST attribution, README, potential-errata and MSRV reviews are complete. Rust 1.85.0 support, feature configurations, package contents and both hosted workflows were verified on the published revision. Version 0.1.0 is published on crates.io and GitHub; the registry archive checksum matches the verified package. Platform limits and dependency licenses remain documented. Prebuilt CLI binaries are not provided; the license inventory is not a linked-binary redistribution bundle. |
 | Partial; further scope decision | **G9 Operational source integration** | Allocation-free `no_std` RCT/APT monitoring is available. GetNoise/GetEntropy interfaces, output gating, on-demand operation and failure recovery remain application responsibilities; adding those device operations would require a separate scope decision. |
 
 Version 0.1.0 publishes the numerical workflows through the library and six-command
 CLI, with successful package verification and both hosted CI workflows on the
 release commit. Remaining work includes broader numerical and robustness coverage,
-performance benchmarks, and complete validation-workflow reference comparisons.
+broader performance benchmarks, and complete validation-workflow reference comparisons.
 Operational source integration remains a separate scope decision.
 
 ## Requirements that remain external

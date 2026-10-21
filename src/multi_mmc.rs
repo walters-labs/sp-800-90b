@@ -102,6 +102,91 @@ pub fn multi_mmc_estimate_with_options(
         });
     }
     let depth = options.max_depth.min(samples.len() - 2);
+    let (correct, longest, scoreboard, entries) = if samples.iter().all(|&s| s <= 1) {
+        binary_counts(samples, depth, options.max_entries)
+    } else {
+        general_counts(samples, depth, options.max_entries)
+    };
+    let mut seen = [false; 256];
+    for &s in samples {
+        seen[s as usize] = true;
+    }
+    let k = seen.iter().filter(|&&x| x).count();
+    let n = samples.len() - 2;
+    let (p_global, p_global_upper, p_local, p_upper, min_entropy) =
+        crate::prediction::estimate(correct, n, longest, k, prec, options.confidence_constant);
+    Ok(MultiMmcEstimate {
+        sample_count: samples.len(),
+        alphabet_size: k,
+        prediction_count: n,
+        correct_count: correct,
+        longest_correct_run: longest,
+        scoreboard,
+        entries,
+        p_global,
+        p_global_upper,
+        p_local,
+        p_upper,
+        min_entropy,
+    })
+}
+
+// Binary contexts have at most 2^16 values. Direct tables avoid hashing while
+// preserving the per-depth cap on distinct (context, successor) pairs.
+fn binary_counts(
+    samples: &[u8],
+    depth: usize,
+    max_entries: usize,
+) -> (usize, usize, Vec<usize>, Vec<usize>) {
+    let mut models: Vec<Vec<[usize; 2]>> = (1..=depth).map(|d| vec![[0; 2]; 1 << d]).collect();
+    let mut entries = vec![1; depth];
+    let mut scoreboard = vec![0; depth];
+    let mut context = 0;
+    for (d, model) in models.iter_mut().enumerate() {
+        context = (context << 1) | usize::from(samples[d]);
+        model[context][usize::from(samples[d + 1])] = 1;
+    }
+    let (mut winner, mut correct, mut run, mut longest) = (0, 0, 0, 0);
+    for i in 2..samples.len() {
+        let previous_winner = winner;
+        let symbol = usize::from(samples[i]);
+        let mut context = 0;
+        for d in 0..depth.min(i - 1) {
+            context |= usize::from(samples[i - d - 1]) << d;
+            let counts = &mut models[d][context];
+            let predicted = usize::from(counts[1] >= counts[0]);
+            if counts[predicted] != 0 {
+                if predicted == symbol {
+                    scoreboard[d] += 1;
+                    if scoreboard[d] >= scoreboard[winner] {
+                        winner = d;
+                    }
+                    if d == previous_winner {
+                        correct += 1;
+                        run += 1;
+                        longest = longest.max(run);
+                    }
+                } else if d == previous_winner {
+                    run = 0;
+                }
+            }
+            // An unavailable winning prediction leaves the run unchanged.
+            if counts[symbol] != 0 {
+                counts[symbol] += 1;
+            } else if entries[d] < max_entries {
+                counts[symbol] = 1;
+                entries[d] += 1;
+            }
+        }
+    }
+    (correct, longest, scoreboard, entries)
+}
+
+fn general_counts(
+    samples: &[u8],
+    depth: usize,
+    max_entries: usize,
+) -> (usize, usize, Vec<usize>, Vec<usize>) {
     let mut models: Vec<HashMap<u128, Successors>> = (0..depth).map(|_| HashMap::new()).collect();
     let mut entries = vec![1usize; depth];
     let mut scoreboard = vec![0usize; depth];
@@ -135,7 +220,7 @@ pub fn multi_mmc_estimate_with_options(
             }
             // Intentionally mirror NIST: a null winning prediction does not
             // reset the run. This differs from a run of consecutive correct bits.
-            let allow_new = entries[d] < options.max_entries;
+            let allow_new = entries[d] < max_entries;
             if let Some(successors) = models[d].get_mut(&context) {
                 if successors.increment(samples[i], allow_new) {
                     entries[d] += 1;
@@ -148,33 +233,45 @@ pub fn multi_mmc_estimate_with_options(
             }
         }
     }
-    let mut seen = [false; 256];
-    for &s in samples {
-        seen[s as usize] = true;
-    }
-    let k = seen.iter().filter(|&&x| x).count();
-    let n = samples.len() - 2;
-    let (p_global, p_global_upper, p_local, p_upper, min_entropy) =
-        crate::prediction::estimate(correct, n, longest, k, prec, options.confidence_constant);
-    Ok(MultiMmcEstimate {
-        sample_count: samples.len(),
-        alphabet_size: k,
-        prediction_count: n,
-        correct_count: correct,
-        longest_correct_run: longest,
-        scoreboard,
-        entries,
-        p_global,
-        p_global_upper,
-        p_local,
-        p_upper,
-        min_entropy,
-    })
+    (correct, longest, scoreboard, entries)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn binary_tables_match_general_models_exhaustively() {
+        for n in 4..=10 {
+            for pattern in 0..1usize << n {
+                let samples: Vec<_> = (0..n).map(|i| ((pattern >> i) & 1) as u8).collect();
+                for depth in 1..=4.min(n - 2) {
+                    for cap in [1, 2, 7, 100_000] {
+                        assert_eq!(
+                            binary_counts(&samples, depth, cap),
+                            general_counts(&samples, depth, cap),
+                            "samples={samples:?}, depth={depth}, cap={cap}"
+                        );
+                    }
+                }
+            }
+        }
+        let mut state = 103u64;
+        let samples: Vec<_> = (0..8192)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                (state & 1) as u8
+            })
+            .collect();
+        for cap in [1, 7, 100_000] {
+            assert_eq!(
+                binary_counts(&samples, 16, cap),
+                general_counts(&samples, 16, cap)
+            );
+        }
+    }
+
     #[test]
     fn ties_and_existing_counts_after_capacity() {
         let mut s = Successors::default();

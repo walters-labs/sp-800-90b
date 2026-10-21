@@ -33,10 +33,10 @@ it does not imply that whole files were copied verbatim.
 | Rust files | Reference source | Adaptation and differences |
 | --- | --- | --- |
 | `most_common_value.rs`, `collision.rs`, `markov.rs` | `shared/most_common.h`, `non_iid/collision_test.h`, `non_iid/markov_test.h` | Estimator formulas, confidence/boundary conventions; Rust validation, reports and MPFR calculations |
-| `compression.rs` | `non_iid/compression_test.h` | Six-bit block estimator and reference boundary/correction behavior; MPFR evaluation and Rust search implementation |
-| `multi_mcw.rs`, `lag.rs`, `multi_mmc.rs`, `lz78y.rs` | Corresponding `non_iid/*_test.h` files | Predictor scoring, tie/run/dictionary behavior; Rust containers and parameter validation |
+| `compression.rs` | `non_iid/compression_test.h` | Six-bit block estimator and reference boundary/correction behavior; MPFR evaluation, bounded distance-log cache, streaming moments and Rust search implementation |
+| `multi_mcw.rs`, `lag.rs`, `multi_mmc.rs`, `lz78y.rs` | Corresponding `non_iid/*_test.h` files | Predictor scoring, tie/run/dictionary behavior; Rust containers, direct binary context tables for MultiMMC/LZ78Y, and parameter validation |
 | `prediction.rs` | `shared/utils.h`, especially `prediction_estimate_function` and prediction bounds | Reference's up-to-66-step recurrence; MPFR calculations and convergence handling rather than native `long double` |
-| `t_tuple.rs`, `lrs.rs`, `iid.rs`, `tuples.rs` | `shared/lrs_test.h`, `iid_main.cpp` | Tuple/LRS and IID probability/decision concepts; Rust prefix-doubling suffix array and histogram aggregation instead of linking divsufsort, MPFR IID tail calculation |
+| `t_tuple.rs`, `lrs.rs`, `iid.rs`, `tuples.rs` | `shared/lrs_test.h`, `iid_main.cpp` | Tuple/LRS and IID probability/decision concepts; Rust prefix-doubling suffix array and histogram aggregation instead of linking divsufsort, shared t-Tuple/LRS counts in combined assessments, MPFR IID tail calculation |
 | `chi_square.rs` | `iid/chi_square_tests.h` | Reference grouping/binning and test rules; MPFR integer/half-integer tail evaluation instead of the reference's Cephes routines |
 | `permutation.rs` | `iid/permutation_tests.h`, `shared/utils.h` | Statistics, serial shuffle stream, early-stop tails and reference arithmetic; Rust compression backend and optional exact-count arithmetic |
 | `restart.rs` | `restart_main.cpp`, `transpose_main.cpp`, `shared/utils.h` | Matrix layout, simulated count distribution, cutoff and entropy rules; serial simulation with histogram quantiles, explicit rejection/incomplete reports |
@@ -91,6 +91,7 @@ does not authorize dropping notices when distributing those external artifacts.
 | 2026-10-20 | `050409b`, `1cc5011`, `857299b` | Ranked symbol reduction, proportional vetted-output truncation and typed conditioner dimensions |
 | 2026-10-20 | `123815e`, `b14f502`, `fd601e1` | Additional-source accounting, six CLI commands, packaging documentation and public API conveniences |
 | 2026-10-20 | This provenance review | Preserved upstream notice, combined license file, source attribution pointers and this record; no numerical behavior changes |
+| 2026-10-20 | Post-v0.1.0 performance changes | Shared suffix counts, bounded compression-log caching and direct binary MultiMMC/LZ78Y tables informed by the corresponding reference binary paths; preserved MPFR precision and estimator rules |
 
 Dates above are recorded commit dates, not an assertion about the exact time
 each line was originally written. Subsequent algorithm adaptations should update

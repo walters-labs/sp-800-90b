@@ -72,10 +72,23 @@ pub fn t_tuple_estimate_with_options(
         });
     }
     let q = maximum_counts(samples);
+    estimate_from_counts(n, &q, options)
+}
+
+// The coordinator shares suffix counts with LRS. Public entry points validate
+// options first; this helper also handles the no-qualifying-tuple outcome.
+pub(crate) fn estimate_from_counts(
+    n: usize,
+    q: &[usize],
+    options: TTupleOptions,
+) -> Result<TTupleEstimate, EstimateError> {
+    let prec = options.precision_bits;
     let t = (1..=n)
         .take_while(|&i| q[i] >= options.cutoff)
         .last()
-        .unwrap();
+        .ok_or(EstimateError::NoQualifyingTuple {
+            cutoff: options.cutoff,
+        })?;
     let mut best_log = Float::with_val(prec, f64::NEG_INFINITY);
     for (i, &count) in q.iter().enumerate().take(t + 1).skip(1) {
         let mut value = Float::with_val(prec, count);

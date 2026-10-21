@@ -262,8 +262,10 @@ See [reference testing](docs/reference-testing.md) to reproduce the checks,
 [CI runs](https://github.com/walters-labs/sp-800-90b/actions)
 for revision-specific results, and the [coverage audit](docs/coverage-audit.md)
 for dated evidence, deliberate differences and remaining coverage gaps.
-Full end-to-end workflow reference parity, broad fuzzing and performance
-benchmarks remain open. Physical noise models, collection provenance, IID
+See [performance](docs/performance.md) for local non-IID timings, peak memory,
+and post-v0.1.0 optimizations. Broader platform and workload benchmarks,
+full end-to-end workflow reference parity and broad fuzzing remain open.
+Physical noise models, collection provenance, IID
 rationale, vetted-component assurance and device failure handling remain
 responsibilities of the source developer and validation process.
 

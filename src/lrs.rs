@@ -67,6 +67,16 @@ pub fn lrs_estimate_with_options(
         return Err(EstimateError::InvalidTupleCutoff);
     }
     let (q, pairs) = crate::tuples::tuple_counts(samples, true);
+    estimate_from_counts(n, &q, &pairs, options)
+}
+
+pub(crate) fn estimate_from_counts(
+    n: usize,
+    q: &[usize],
+    pairs: &[u128],
+    options: LrsOptions,
+) -> Result<LrsEstimate, EstimateError> {
+    let prec = options.precision_bits;
     let u = (1..=n).find(|&i| q[i] < options.cutoff).unwrap();
     let v = (1..=n).rfind(|&i| q[i] >= 2).unwrap_or(0);
     if v < u {

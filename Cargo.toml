@@ -53,6 +53,10 @@ name = "non_iid"
 required-features = ["assessment"]
 
 [[example]]
+name = "profile_non_iid"
+required-features = ["assessment"]
+
+[[example]]
 name = "restart"
 required-features = ["assessment"]
 

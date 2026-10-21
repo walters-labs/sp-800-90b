@@ -376,10 +376,12 @@ pub(crate) fn assess_dataset(
             });
         }
     }
+    let (tuple_counts, pair_counts) = crate::tuples::tuple_counts(samples, true);
     add!(
         TTuple,
-        t_tuple_estimate_with_options(
-            samples,
+        crate::t_tuple::estimate_from_counts(
+            samples.len(),
+            &tuple_counts,
             TTupleOptions {
                 precision_bits,
                 confidence_constant,
@@ -389,8 +391,10 @@ pub(crate) fn assess_dataset(
     );
     add!(
         Lrs,
-        lrs_estimate_with_options(
-            samples,
+        crate::lrs::estimate_from_counts(
+            samples.len(),
+            &tuple_counts,
+            &pair_counts,
             LrsOptions {
                 precision_bits,
                 confidence_constant,
@@ -398,6 +402,8 @@ pub(crate) fn assess_dataset(
             }
         )
     );
+    drop(tuple_counts);
+    drop(pair_counts);
     add!(
         MultiMcw,
         multi_mcw_estimate_with_options(
@@ -518,6 +524,77 @@ pub fn assess_non_iid(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn shared_tuple_counts_match_standalone_results_and_errors() {
+        let datasets = [
+            vec![0, 1],
+            (0..=255).collect(),
+            vec![0; 100],
+            [0, 1, 2, 0, 1, 0, 2].repeat(40),
+        ];
+        for samples in datasets {
+            for confidence_constant in [
+                ConfidenceConstant::NistReference,
+                ConfidenceConstant::Publication,
+            ] {
+                let options = NonIidOptions {
+                    precision_bits: 128,
+                    confidence_constant,
+                    ..Default::default()
+                };
+                let report = assess_dataset(&samples, false, 8, options);
+                let t = t_tuple_estimate_with_options(
+                    &samples,
+                    TTupleOptions {
+                        precision_bits: 128,
+                        confidence_constant,
+                        ..Default::default()
+                    },
+                );
+                match (&report.estimators[4].outcome, t) {
+                    (
+                        EstimatorOutcome::Available(EstimatorDetails::TTuple(actual)),
+                        Ok(expected),
+                    ) => {
+                        assert_eq!(actual.sample_count, expected.sample_count);
+                        assert_eq!(actual.max_tuple_length, expected.max_tuple_length);
+                        assert_eq!(actual.maximum_counts, expected.maximum_counts);
+                        assert_eq!(actual.p_hat, expected.p_hat);
+                        assert_eq!(actual.p_upper, expected.p_upper);
+                        assert_eq!(actual.min_entropy, expected.min_entropy);
+                    }
+                    (EstimatorOutcome::Unavailable(actual), Err(expected)) => {
+                        assert_eq!(*actual, expected)
+                    }
+                    (actual, expected) => panic!("t-Tuple: {actual:?} vs {expected:?}"),
+                }
+                let lrs = lrs_estimate_with_options(
+                    &samples,
+                    LrsOptions {
+                        precision_bits: 128,
+                        confidence_constant,
+                        ..Default::default()
+                    },
+                );
+                match (&report.estimators[5].outcome, lrs) {
+                    (EstimatorOutcome::Available(EstimatorDetails::Lrs(actual)), Ok(expected)) => {
+                        assert_eq!(actual.sample_count, expected.sample_count);
+                        assert_eq!(actual.min_length, expected.min_length);
+                        assert_eq!(actual.max_length, expected.max_length);
+                        assert_eq!(actual.pair_counts, expected.pair_counts);
+                        assert_eq!(actual.p_hat, expected.p_hat);
+                        assert_eq!(actual.p_upper, expected.p_upper);
+                        assert_eq!(actual.min_entropy, expected.min_entropy);
+                    }
+                    (EstimatorOutcome::Unavailable(actual), Err(expected)) => {
+                        assert_eq!(*actual, expected)
+                    }
+                    (actual, expected) => panic!("LRS: {actual:?} vs {expected:?}"),
+                }
+            }
+        }
+    }
+
     #[test]
     fn raw_bits_precede_rank_mapping_and_padding() {
         let data = prepare(&[1, 4, 7], NonIidOptions::default()).unwrap();

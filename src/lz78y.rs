@@ -93,6 +93,85 @@ pub fn lz78y_estimate_with_options(
             count: samples.len().saturating_sub(b + 1),
         });
     }
+    let (correct, longest, contexts_per_length) = if samples.iter().all(|&s| s <= 1) {
+        binary_counts(samples, b, options.max_dictionary_size)
+    } else {
+        general_counts(samples, b, options.max_dictionary_size)
+    };
+    let mut seen = [false; 256];
+    for &symbol in samples {
+        seen[symbol as usize] = true;
+    }
+    let k = seen.iter().filter(|&&x| x).count();
+    let n = samples.len() - b - 1;
+    let (p_global, p_global_upper, p_local, p_upper, min_entropy) =
+        crate::prediction::estimate(correct, n, longest, k, prec, options.confidence_constant);
+    Ok(Lz78yEstimate {
+        sample_count: samples.len(),
+        alphabet_size: k,
+        prediction_count: n,
+        correct_count: correct,
+        longest_correct_run: longest,
+        dictionary_size: contexts_per_length.iter().sum(),
+        contexts_per_length,
+        p_global,
+        p_global_upper,
+        p_local,
+        p_upper,
+        min_entropy,
+    })
+}
+
+// At most 2^16 binary contexts per length, with two successor counters each.
+// The capacity limit counts contexts across all lengths, not successor pairs.
+fn binary_counts(samples: &[u8], b: usize, cap: usize) -> (usize, usize, Vec<usize>) {
+    let mut dictionary: Vec<Vec<[usize; 2]>> =
+        (1..=b).map(|length| vec![[0; 2]; 1 << length]).collect();
+    let mut sizes = vec![1; b];
+    let mut dictionary_size = b;
+    let mut pattern = samples[..b]
+        .iter()
+        .fold(0usize, |value, &s| (value << 1) | usize::from(s));
+    let full_mask = (1 << b) - 1;
+    for (j, model) in dictionary.iter_mut().enumerate() {
+        model[pattern & ((1 << (j + 1)) - 1)][usize::from(samples[b])] = 1;
+    }
+    let (mut correct, mut run, mut longest) = (0, 0, 0);
+    for i in b + 1..samples.len() {
+        pattern = ((pattern << 1) | usize::from(samples[i - 1])) & full_mask;
+        let symbol = usize::from(samples[i]);
+        let mut prediction = None;
+        let mut max_count = 0;
+        for j in (0..b).rev() {
+            let counts = &mut dictionary[j][pattern & ((1 << (j + 1)) - 1)];
+            let predicted = usize::from(counts[1] >= counts[0]);
+            let count = counts[predicted];
+            if count != 0 {
+                // Strict comparison retains the longer context on ties.
+                if count > max_count {
+                    max_count = count;
+                    prediction = Some(predicted);
+                }
+                // Existing contexts learn new successors even after saturation.
+                counts[symbol] += 1;
+            } else if dictionary_size < cap {
+                counts[symbol] = 1;
+                sizes[j] += 1;
+                dictionary_size += 1;
+            }
+        }
+        if prediction == Some(symbol) {
+            correct += 1;
+            run += 1;
+            longest = longest.max(run);
+        } else {
+            run = 0;
+        }
+    }
+    (correct, longest, sizes)
+}
+
+fn general_counts(samples: &[u8], b: usize, cap: usize) -> (usize, usize, Vec<usize>) {
     let masks: Vec<u128> = (1..=b)
         .map(|length| {
             if length == 16 {
@@ -132,7 +211,7 @@ pub fn lz78y_estimate_with_options(
                     // contexts can always learn new successors after saturation.
                     successors.increment(samples[i]);
                 }
-                Entry::Vacant(entry) if dictionary_size < options.max_dictionary_size => {
+                Entry::Vacant(entry) if dictionary_size < cap => {
                     let mut successors = Successors::default();
                     successors.increment(samples[i]);
                     entry.insert(successors);
@@ -149,26 +228,47 @@ pub fn lz78y_estimate_with_options(
             run = 0;
         }
     }
-    let mut seen = [false; 256];
-    for &symbol in samples {
-        seen[symbol as usize] = true;
+    (
+        correct,
+        longest,
+        dictionary.iter().map(HashMap::len).collect(),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn binary_tables_match_general_models_exhaustively() {
+        for n in 4..=10 {
+            for pattern in 0..1usize << n {
+                let samples: Vec<_> = (0..n).map(|i| ((pattern >> i) & 1) as u8).collect();
+                for b in 1..=4.min(n - 3) {
+                    for cap in [b, b + 1, 7, 65_536] {
+                        assert_eq!(
+                            binary_counts(&samples, b, cap),
+                            general_counts(&samples, b, cap),
+                            "samples={samples:?}, length={b}, cap={cap}"
+                        );
+                    }
+                }
+            }
+        }
+        let mut state = 103u64;
+        let samples: Vec<_> = (0..8192)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                (state & 1) as u8
+            })
+            .collect();
+        for cap in [16, 32, 65_536] {
+            assert_eq!(
+                binary_counts(&samples, 16, cap),
+                general_counts(&samples, 16, cap)
+            );
+        }
     }
-    let k = seen.iter().filter(|&&x| x).count();
-    let n = samples.len() - b - 1;
-    let (p_global, p_global_upper, p_local, p_upper, min_entropy) =
-        crate::prediction::estimate(correct, n, longest, k, prec, options.confidence_constant);
-    Ok(Lz78yEstimate {
-        sample_count: samples.len(),
-        alphabet_size: k,
-        prediction_count: n,
-        correct_count: correct,
-        longest_correct_run: longest,
-        dictionary_size,
-        contexts_per_length: dictionary.iter().map(HashMap::len).collect(),
-        p_global,
-        p_global_upper,
-        p_local,
-        p_upper,
-        min_entropy,
-    })
 }
